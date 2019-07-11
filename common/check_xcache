@@ -1,0 +1,89 @@
+#!/usr/bin/env python
+# Copyright 2012-2019 CERN for the benefit of the ATLAS collaboration.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Mario Lassnig, <mario.lassnig@cern.ch>, 2012-2019
+#
+# PY3K COMPATIBLE
+
+from __future__ import print_function
+
+import json
+import sys
+import traceback
+
+import requests
+
+try:
+    # Python 2
+    from urlparse import urlparse
+except ImportError:
+    # Python 3
+    from urllib.parse import urlparse
+
+from rucio.db.sqla.session import get_session
+from rucio.common.exception import RucioException
+from rucio.core.config import set as core_set
+
+
+UNKNOWN = 3
+CRITICAL = 2
+WARNING = 1
+OK = 0
+
+RESULT = OK
+
+if __name__ == '__main__':
+
+    SE_URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&type=SE&state=ACTIVE'
+    try:
+        SE_RESP = requests.get(SE_URL)
+        SE_DATA = json.loads(SE_RESP.content)
+    except Exception as error:
+        print("Failed to load SE info from AGIS: %s" % str(error))
+        sys.exit(WARNING)
+
+    session = get_session()
+
+    xcaches = []
+
+    try:
+
+        for rc_site in SE_DATA:
+
+            for se in SE_DATA[rc_site]:
+
+                for protocol in SE_DATA[rc_site][se]['protocols']:
+
+                    # find all active internal proxies (==xcaches)
+                    if SE_DATA[rc_site][se]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
+                       SE_DATA[rc_site][se]['protocols'][protocol]['state'] == 'ACTIVE':
+                        xcaches.append( (rc_site, SE_DATA[rc_site][se]['protocols'][protocol]['endpoint']) )
+
+        for xcache in xcaches:
+            url = '%s:%s' % (urlparse(xcache[1]).hostname, urlparse(xcache[1]).port)
+            print('Setting root-proxy-internal for', xcache[0], url)
+            core_set('root-proxy-internal', xcache[0], url, session=session)
+
+    except RucioException as error:
+        print(error)
+        sys.exit(CRITICAL)
+    except Exception:
+        print(traceback.format_exc())
+        RESULT = WARNING
+    finally:
+        session.commit()
+
+    sys.exit(RESULT)
