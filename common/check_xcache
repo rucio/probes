@@ -90,7 +90,7 @@ if __name__ == '__main__':
         print('Removing Rucio entries which were not found in AGIS:')
         for xcache in xcaches_in_rucio:
             print('-DEL->', xcache)
-            core_del('root-proxy-internal', xcache)
+            core_del('root-proxy-internal', xcache, session=session)
 
     except RucioException as error:
         print(error)
