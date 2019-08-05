@@ -85,7 +85,8 @@ if __name__ == '__main__':
             url = '%s:%s' % (urlparse(xcache[1]).hostname, urlparse(xcache[1]).port)
             print('-SET->', xcache[0], '--->', url)
             core_set('root-proxy-internal', xcache[0], url, session=session)
-            del xcaches_in_rucio[xcache[0]]
+            if xcache[0] in xcaches_in_rucio.keys():
+                del xcaches_in_rucio[xcache[0]]
 
         print('Removing Rucio entries which were not found in AGIS:')
         for xcache in xcaches_in_rucio:
