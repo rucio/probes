@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
         xcaches_in_rucio = {}
         res = core_items('root-proxy-internal', session=session)
-        for site,host in res:
+        for site, host in res:
             xcaches_in_rucio[site] = host
 
         SE_URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&type=SE&state=ACTIVE'
@@ -78,14 +78,14 @@ if __name__ == '__main__':
                     # find all active internal proxies (==xcaches_in_agis)
                     if SE_DATA[rc_site][se]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
                        SE_DATA[rc_site][se]['protocols'][protocol]['state'] == 'ACTIVE':
-                        xcaches_in_agis.append( (rc_site, SE_DATA[rc_site][se]['protocols'][protocol]['endpoint']) )
+                        xcaches_in_agis.append((rc_site, SE_DATA[rc_site][se]['protocols'][protocol]['endpoint']))
 
         print('Setting values in Rucio from AGIS:')
         for xcache in xcaches_in_agis:
             url = '%s:%s' % (urlparse(xcache[1]).hostname, urlparse(xcache[1]).port)
             print('-SET->', xcache[0], '--->', url)
             core_set('root-proxy-internal', xcache[0], url, session=session)
-            del(xcaches_in_rucio[xcache[0]])
+            del xcaches_in_rucio[xcache[0]]
 
         print('Removing Rucio entries which were not found in AGIS:')
         for xcache in xcaches_in_rucio:
