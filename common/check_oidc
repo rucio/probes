@@ -1,0 +1,286 @@
+#!/usr/bin/env python
+"""
+ Copyright European Organization for Nuclear Research (CERN)
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ You may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+                       http://www.apache.org/licenses/LICENSE-2.0
+
+ Authors:
+ - Jaroslav Guenther, <jaroslav.guenther@cern.ch>, 2019
+
+ Implementation of SCIM Rucio provisioning test client as a probe daemon
+ syncing Rucio accounts and their and XDC IAM identities.
+ With SCIM client credentials, Rucio can get an access token and retrieve information from SCIM endpoint.
+
+ The IAM integration for LHC VOs could also require that the IAM username
+ will be filled with the CERN LDAP username, thus not requiring any other
+ attribute. This approach makes LHC VOs and non-LHC VOs equivalent from the
+ RUCIO point of view.
+
+PY3K COMPATIBLE
+"""
+
+
+from __future__ import print_function
+
+import sys
+import time
+import json
+import traceback
+import ldap  # pylint: disable=import-error
+
+from requests import session as request_session
+
+from rucio.db.sqla.session import get_session
+from rucio.client import Client
+from rucio.common.exception import Duplicate
+from rucio.common.utils import build_url, oidc_identity_string
+
+UNKNOWN = 3
+CRITICAL = 2
+WARNING = 1
+OK = 0
+
+LDAP_HOSTS = ['ldaps://xldap.cern.ch']
+LDAP_OPTIONS = [
+    # default configuration comes from /etc/openldap/ldap.conf
+    #(ldap.OPT_X_TLS_CACERTDIR, '/etc/pki/tls/certs'),
+    #(ldap.OPT_X_TLS_CACERTFILE, '/etc/pki/tls/certs/ca-bundle.crt'),
+    #(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER),
+    (ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND),
+    (ldap.OPT_REFERRALS, 0),
+]
+LDAP_BASE = 'OU=Users,OU=Organic Units,DC=cern,DC=ch'
+LDAP_SCOPE = ldap.SCOPE_SUBTREE
+LDAP_FILTER = '(&(objectClass=user)(!(memberOf=CN=cern-accounts-service,OU=e-groups,OU=Workgroups,DC=cern,DC=ch)))'
+LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail']
+LDAP_PAGE_SIZE = 1000
+
+OIDC_ISSUER = 'https://iam.extreme-datacloud.eu/'
+
+
+def get_oidc_userinfo():
+    """Get information about OIDC accounts in XDC IAM via SCIM client"""
+    # getting SCIM client secret
+    with open('/opt/rucio/etc/SCIM_secret.json') as client_secret_file:
+        client_secret = json.load(client_secret_file)
+
+    userlist = None
+
+    try:
+        token_request_url = build_url(OIDC_ISSUER, path='token', params=client_secret)
+        req_session = request_session()
+
+        # requesting authorization URL specific to the user & Rucio OIDC Client
+        token_res = req_session.post(token_request_url, verify=False)
+        token_dict = token_res.json()
+        access_token = token_dict['access_token']
+
+        # with the obtained access token, we can request user information
+        headers = {'Authorization': 'Bearer ' + access_token}
+        userinfo_url = build_url(OIDC_ISSUER, path='scim/Users')
+        userinfo_res = req_session.get(userinfo_url, headers=headers, verify=False)
+        userinfo_dict = userinfo_res.json()
+
+        userlist = []
+        for oidc_user in userinfo_dict['Resources']:
+            if oidc_user['meta']['resourceType'] == 'User' and oidc_user['active'] is True:
+                userinfo = {'nickname': oidc_user['userName'],
+                            'email': [em['value'] for em in oidc_user['emails'] if em['primary'] is True][0],
+                            'fullName': oidc_user['name']['givenName'] + ' ' + oidc_user['name']['familyName'],
+                            'identity': oidc_identity_string(oidc_user['id'], OIDC_ISSUER)}
+                userlist.append(userinfo)
+    except Exception:
+        print(traceback.format_exc())
+
+    return userlist
+
+
+def get_accounts_identities():
+    """Get all OIDC identities and their account information from Rucio DB"""
+    session = get_session()
+    query = '''select b.identity, a.account, a.email from atlas_rucio.accounts a,  atlas_rucio.account_map b \
+               where a.account=b.account and identity_type='OIDC' and account_type='USER' '''
+
+    identities = {}
+    try:
+        result = session.execute(query)
+        for dn, account, email in result:
+            identities[dn] = (account, email)
+        return identities
+    except Exception as error:
+        print(error)
+
+
+def get_ldap_identities():
+    """Get user account info from CERN AD/LDAP"""
+    for opt_key, opt_val in LDAP_OPTIONS:
+        ldap.set_option(opt_key, opt_val)
+
+    conn = ldap.initialize(",".join(LDAP_HOSTS))
+    conn.simple_bind_s()
+
+    paged_serverctrls = []
+    old_paged_search = [int(x) for x in ldap.__version__.split('.')] < [2, 4, 0]
+    if old_paged_search:
+        paged_serverctrls.append(ldap.controls.SimplePagedResultsControl(ldap.LDAP_CONTROL_PAGE_OID, True, (LDAP_PAGE_SIZE, '')))
+    else:
+        paged_serverctrls.append(ldap.controls.SimplePagedResultsControl(True, size=LDAP_PAGE_SIZE, cookie=''))
+
+    ret = {}
+    while True:
+        msgid = conn.search_ext(LDAP_BASE, LDAP_SCOPE, filterstr=LDAP_FILTER, attrlist=LDAP_ATTRS, serverctrls=paged_serverctrls)
+        rtype, rdata, rmsgid, serverctrls = conn.result3(msgid=msgid)
+        for dn, attrs in rdata:
+            cn = attrs['cn'][0]
+            user = {
+                'mails': [],
+                # 'x509': [],
+            }
+
+            for attr in ['mail', 'cernExternalMail']:
+                if attr in attrs:
+                    user[attr] = attrs[attr][0]
+
+            for pmail in attrs.get('proxyAddresses', []):
+                if pmail.lower().startswith('smtp:'):
+                    mail = pmail[len('smtp:'):]
+                    if mail.lower() not in [umail.lower() for umail in user['mails']]:
+                        user['mails'].append(mail)
+            for mail in attrs.get('mail', []):
+                if mail.lower() not in [umail.lower() for umail in user['mails']]:
+                    user['mails'].append(mail)
+
+            ret[cn] = user
+
+        cookie = None
+        for serverctrl in serverctrls:
+            if old_paged_search:
+                if serverctrl.controlType == ldap.LDAP_CONTROL_PAGE_OID:
+                    unused_est, cookie = serverctrl.controlValue
+                    if cookie:
+                        serverctrl.controlValue = (LDAP_PAGE_SIZE, cookie)
+                    break
+            else:
+                if serverctrl.controlType == ldap.controls.SimplePagedResultsControl.controlType:
+                    cookie = serverctrl.cookie
+                    if cookie:
+                        serverctrl.size = LDAP_PAGE_SIZE
+                    break
+
+        if not cookie:
+            break
+
+        paged_serverctrls = serverctrls
+    return ret
+
+
+if __name__ == '__main__':
+
+    starttime = time.time()
+    status = OK
+    nbusers = 0
+    nonicknames = []
+    client = Client()
+    # syncing rucio emails with email registeres in CERN LDAP
+    ldap_accounts = get_ldap_identities()
+    rucio_accounts_email = {account['account']: account['email'] for account in client.list_accounts()}
+
+    for account in rucio_accounts_email:
+        if account in ldap_accounts:
+            if rucio_accounts_email[account] and not rucio_accounts_email[account].lower() in [email.lower() for email in ldap_accounts[account]['mails']]:
+                print('Bad email for %s : %s vs %s' % (account, rucio_accounts_email[account], ldap_accounts[account]))
+                try:
+                    client.update_account(account=account, key='email', value=ldap_accounts[account]['mail'])
+                except Exception as error:
+                    print(error)
+        else:
+            print('%s might not be in ATLAS anymore' % account)
+
+    # checking XDC IAM user info and syncing it with Rucio in case the IAM nickname == CERN LDAP username
+    oidc_userlist = get_oidc_userinfo()
+    rucio_accounts = rucio_accounts_email.keys()
+    rucio_identities = get_accounts_identities()
+    scopes = [_ for _ in client.list_scopes()]
+    oidc_identities = {}
+    if isinstance(oidc_userlist, list):
+        for user in oidc_userlist:
+            valid_nickname = True
+            sub = user['identity']
+            scope = None
+            if rucio_identities and sub in rucio_identities:
+                # Check if scope exists
+                account = rucio_identities[sub][0]
+                scope = 'user.' + account
+            else:
+                nbusers += 1
+                attempts = 0
+                totattemps = 3
+                for attempts in range(0, totattemps):
+                    if attempts < totattemps - 1:
+                        try:
+                            # need to process using VOMS get to nicknames .. we have it already !
+                            nickname = None
+                            email = None
+                            try:
+                                nickname = user['nickname']
+                                email = user['email']
+                            except TypeError as error:
+                                print('ERROR : Failed to process OIDC identity: %s' % sub)
+                            if nickname:
+                                if nickname in rucio_accounts:
+                                    if nickname not in oidc_identities:
+                                        oidc_identities[nickname] = [identity['identity'] for identity in client.list_identities(account=nickname) if identity['type'] == 'OIDC']
+                                    if sub not in oidc_identities[nickname]:
+                                        try:
+                                            client.add_identity(account=nickname, identity=sub, authtype='OIDC', email=email, default=True)
+                                            print('Identity %(sub)s added' % locals())
+                                        except Duplicate:
+                                            print("adding duplicate cancelled")
+                                            pass
+                                    scope = 'user.' + account
+                                    break
+                                else:
+                                    if nickname in ldap_accounts:
+                                        if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
+                                            print('Account nickname %s exists in CERN LDAP and SCIM databases.' % (nickname) +
+                                                  ' Equivalent Rucio account can not be created automatically as the primary SCIM account email %s' % (email) +
+                                                  ' does not appear in CERN LDAP database.')
+                                            break
+                                        account = nickname
+                                        if account not in rucio_accounts:
+                                            try:
+                                                client.add_account(account=account, type='USER', email=email)
+                                                client.add_identity(account=account, identity=sub, authtype='OIDC', email=email, default=True)
+                                                scope = 'user.' + account
+                                                print('Account %(account)s added' % locals())
+                                            except Exception as error:
+                                                print(error)
+                                                pass
+                                    else:
+                                        print("nickname %s does not exist in rucio, neither in CERN LDAP" % nickname)
+
+                            elif sub not in nonicknames:
+                                nonicknames.append(sub)
+                        except Exception as error:
+                            print(error)
+                    else:
+                        try:
+                            print('ERROR getting info for %s' % (sub))
+                        except UnicodeEncodeError:
+                            print('ERROR getting info for %s' % (repr(sub)))
+                        status = WARNING
+            if scope and scope not in scopes and valid_nickname:
+                try:
+                    client.add_scope(account, scope)
+                    print('Scope %(scope)s added' % locals())
+                except Duplicate:
+                    pass
+    else:
+        sys.exit(CRITICAL)
+    print('%i users extracted from SCIM' % nbusers)
+    if nonicknames != []:
+        print('Users with no nickname : %s' % str(nonicknames))
+    sys.exit(status)
