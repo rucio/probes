@@ -22,7 +22,6 @@
 PY3K COMPATIBLE
 """
 
-
 from __future__ import print_function
 
 import sys
@@ -46,9 +45,9 @@ OK = 0
 LDAP_HOSTS = ['ldaps://xldap.cern.ch']
 LDAP_OPTIONS = [
     # default configuration comes from /etc/openldap/ldap.conf
-    #(ldap.OPT_X_TLS_CACERTDIR, '/etc/pki/tls/certs'),
-    #(ldap.OPT_X_TLS_CACERTFILE, '/etc/pki/tls/certs/ca-bundle.crt'),
-    #(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER),
+    # (ldap.OPT_X_TLS_CACERTDIR, '/etc/pki/tls/certs'),
+    # (ldap.OPT_X_TLS_CACERTFILE, '/etc/pki/tls/certs/ca-bundle.crt'),
+    # (ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER),
     (ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND),
     (ldap.OPT_REFERRALS, 0),
 ]
@@ -58,40 +57,64 @@ LDAP_FILTER = '(&(objectClass=user)(!(memberOf=CN=cern-accounts-service,OU=e-gro
 LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail']
 LDAP_PAGE_SIZE = 1000
 
-OIDC_ISSUER = 'https://iam.extreme-datacloud.eu/'
+
+def get_rucio_SCIM_secrets(idpsecrets):
+    """
+    Creates a Rucio OIDC Client instance using already pre-defined static client
+    pre-registered with the Identity Provider (XDC IAM)
+
+    :returns: Rucio OIDC Client instance if all went without troubles or raises an exception otherwise.
+    """
+    # initializing a client_id and client_secret - provided in a secret config file
+    with open(idpsecrets) as client_secret_file:
+        client_secret = json.load(client_secret_file)
+    secrets = {}
+    for iss in client_secret:
+        try:
+            if 'SCIM' in client_secret[iss]:
+                secrets[client_secret[iss]["issuer"]] = client_secret[iss]['SCIM']
+            else:
+                pass
+        except Exception:
+            print(traceback.format_exc())
+    return secrets
+
+
+# getting the SCIM secrets of all IdPs
+secrets = get_rucio_SCIM_secrets('/opt/rucio/etc/idpsecrets.json')
 
 
 def get_oidc_userinfo():
     """Get information about OIDC accounts in XDC IAM via SCIM client"""
     # getting SCIM client secret
-    with open('/opt/rucio/etc/SCIM_secret.json') as client_secret_file:
-        client_secret = json.load(client_secret_file)
-
+    global secrets
     userlist = None
-
     try:
-        token_request_url = build_url(OIDC_ISSUER, path='token', params=client_secret)
-        req_session = request_session()
+        for scim_client_issuer in secrets:
 
-        # requesting authorization URL specific to the user & Rucio OIDC Client
-        token_res = req_session.post(token_request_url, verify=False)
-        token_dict = token_res.json()
-        access_token = token_dict['access_token']
+            scim_client_secret = secrets[scim_client_issuer]
+            token_request_url = build_url(scim_client_issuer, path='token', params=scim_client_secret)
+            req_session = request_session()
 
-        # with the obtained access token, we can request user information
-        headers = {'Authorization': 'Bearer ' + access_token}
-        userinfo_url = build_url(OIDC_ISSUER, path='scim/Users')
-        userinfo_res = req_session.get(userinfo_url, headers=headers, verify=False)
-        userinfo_dict = userinfo_res.json()
+            # requesting authorization URL specific to the user & Rucio OIDC Client
+            token_res = req_session.post(token_request_url, verify=False)
+            token_dict = token_res.json()
+            access_token = token_dict['access_token']
 
-        userlist = []
-        for oidc_user in userinfo_dict['Resources']:
-            if oidc_user['meta']['resourceType'] == 'User' and oidc_user['active'] is True:
-                userinfo = {'nickname': oidc_user['userName'],
-                            'email': [em['value'] for em in oidc_user['emails'] if em['primary'] is True][0],
-                            'fullName': oidc_user['name']['givenName'] + ' ' + oidc_user['name']['familyName'],
-                            'identity': oidc_identity_string(oidc_user['id'], OIDC_ISSUER)}
-                userlist.append(userinfo)
+            # with the obtained access token, we can request user information
+            headers = {'Authorization': 'Bearer ' + access_token}
+            userinfo_url = build_url(scim_client_issuer, path='scim/Users')
+            userinfo_res = req_session.get(userinfo_url, headers=headers, verify=False)
+            userinfo_dict = userinfo_res.json()
+
+            userlist = []
+            for oidc_user in userinfo_dict['Resources']:
+                if oidc_user['meta']['resourceType'] == 'User' and oidc_user['active'] is True:
+                    userinfo = {'nickname': oidc_user['userName'],
+                                'email': [em['value'] for em in oidc_user['emails'] if em['primary'] is True][0],
+                                'fullName': oidc_user['name']['givenName'] + ' ' + oidc_user['name']['familyName'],
+                                'identity': oidc_identity_string(oidc_user['id'], scim_client_issuer)}
+                    userlist.append(userinfo)
     except Exception:
         print(traceback.format_exc())
 
