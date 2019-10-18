@@ -36,6 +36,7 @@ from rucio.db.sqla.session import get_session
 from rucio.client import Client
 from rucio.common.exception import Duplicate
 from rucio.common.utils import build_url, oidc_identity_string
+from rucio.api.account import add_account_attribute, del_account_attribute, list_account_attributes
 
 UNKNOWN = 3
 CRITICAL = 2
@@ -88,7 +89,7 @@ def get_oidc_userinfo():
     """Get information about OIDC accounts in XDC IAM via SCIM client"""
     # getting SCIM client secret
     global secrets
-    userlist = None
+    userlist = []
     try:
         for scim_client_issuer in secrets:
 
@@ -107,18 +108,26 @@ def get_oidc_userinfo():
             userinfo_res = req_session.get(userinfo_url, headers=headers, verify=False)
             userinfo_dict = userinfo_res.json()
 
-            userlist = []
             for oidc_user in userinfo_dict['Resources']:
+                groups = []
+                if 'groups' in oidc_user:
+                    groups = oidc_user['groups']
                 if oidc_user['meta']['resourceType'] == 'User' and oidc_user['active'] is True:
                     userinfo = {'nickname': oidc_user['userName'],
                                 'email': [em['value'] for em in oidc_user['emails'] if em['primary'] is True][0],
                                 'fullName': oidc_user['name']['givenName'] + ' ' + oidc_user['name']['familyName'],
-                                'identity': oidc_identity_string(oidc_user['id'], scim_client_issuer)}
+                                'identity': oidc_identity_string(oidc_user['id'], scim_client_issuer),
+                                'groups': groups,
+                                'issuer': scim_client_issuer}
                     userlist.append(userinfo)
     except Exception:
         print(traceback.format_exc())
-
     return userlist
+
+
+# /XDC/Tester
+# wlcg.groups will be listed for the user in his profile information if we ask for it and
+# will have the groups listed with '/' prefix
 
 
 def get_accounts_identities():
@@ -306,4 +315,76 @@ if __name__ == '__main__':
     print('%i users extracted from SCIM' % nbusers)
     if nonicknames != []:
         print('Users with no nickname : %s' % str(nonicknames))
+
+    # add identities to group accounts which have the same strings
+    # defined as group display name in users SCIM groups info
+
+    ACCOUNT_LIST = [
+        'pilot', 'calib-muon', 'dataprep', 'det-alfa', 'det-ibl', 'det-indet',
+        'det-larg', 'det-muon', 'det-slhc', 'det-tile', 'perf-egamma',
+        'perf-flavtag', 'perf-idtracking', 'perf-jets', 'perf-muons',
+        'perf-tau', 'phys-beauty', 'phys-exotics', 'phys-gener', 'phys-hdbs',
+        'phys-hi', 'phys-higgs', 'phys-sm', 'phys-susy', 'phys-top',
+        'phys-valid', 'proj-sit', 'trig-daq', 'trig-hlt', 'trig-l1calo'
+    ]
+
+    attempts = 0
+    totattemps = 3
+
+    for attempts in range(0, totattemps):
+        if isinstance(oidc_userlist, list) and (attempts < totattemps - 1):
+            for user in oidc_userlist:
+                try:
+                    sub = user['identity']
+                    account = user['nickname']
+                    # remaining groups should be put as account attributes.
+                    scim_group_names = dict([(n['display'], n['value']) for n in user['groups']])
+                    # for testing: scim_group_names['pilot']='wlcg.group'
+                    email = user['email']
+                    overlapping_groups = [key for key in scim_group_names if key in ACCOUNT_LIST]
+                    non_overlapping_groups = [key for key in scim_group_names if key not in ACCOUNT_LIST]
+                    #print(user, sub, email, overlapping_groups, non_overlapping_groups)
+                    NBGROUPACCOUNTS = 0
+                    NBGROUPATTRIBUTES = 0
+                    for group in overlapping_groups:
+                        try:
+                            client.add_identity(account=group, identity=sub, authtype='OIDC', email=email, default=True)
+                            print('Identity {0} added to {1}'.format(sub, group))
+                        except Duplicate:
+                            pass
+                            continue
+                        except Exception as error:
+                            print(error)
+                            continue
+                        NBGROUPACCOUNTS += 1
+                    print('%i group Rucio accounts got identity of %s account' % (NBGROUPACCOUNTS, account))
+                    for group in non_overlapping_groups:
+                        try:
+                            # list account attributes - if not existing add it
+                            attrs = dict([(dummy['key'], dummy['value']) for dummy in list_account_attributes(account)])
+                            attr_value = 'wlcg.groups'
+                            attributes = ', '.join(non_overlapping_groups)
+                            if group in attrs and attr_value == attrs[group]:
+                                print('Account %s already has the %s attribute %s' % (account, attr_value, group))
+                                continue
+                            elif group in attrs:
+                                print('Removing attribute %s from account %s' % (group, account))
+                                del_account_attribute(group, account, 'root')
+                            print('Adding attribute %s for %s from account %s' % (attr_value, group, account))
+                            add_account_attribute(group, attr_value, account, 'root')
+                            print('Attribute {0} added to {1}'.format(group, account))
+                        except Duplicate:
+                            pass
+                            continue
+                        except Exception as error:
+                            print(error)
+                            continue
+                        NBGROUPATTRIBUTES += 1
+                    print('%i attributes were assigned to Rucio account %s' % (NBGROUPATTRIBUTES, account))
+                except:
+                    print('ERROR getting info for %s' % user)
+                    status = WARNING
+            break
+        else:
+            sys.exit(CRITICAL)
     sys.exit(status)
