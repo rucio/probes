@@ -10,17 +10,22 @@
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014
 # - Wen Guan, <wen.guan@cern.ch>, 2015
 
-'''
+"""
 Probe to check the queues of the transfer service
-'''
+"""
 
 import sys
 
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
 
 active_queue = """SELECT
 CASE
@@ -36,9 +41,9 @@ num_rows
 FROM
 (
 select state, count(*) num_rows, activity, external_host
-FROM atlas_rucio.requests
+FROM {schema}requests
 GROUP BY state, activity, external_host
-)"""
+)""".format(schema=schema)
 
 if __name__ == "__main__":
     try:
