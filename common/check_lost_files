@@ -7,6 +7,8 @@
 #
 # Authors:
 # - Tomas Javurek, Cedric Serfon, 2015
+# - Alexander Bogdanchikov, 2019
+
 
 import os
 import sys
@@ -31,7 +33,14 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 users = True
 groups = True
 gdp = True
-testmode = False
+test_mode = True
+
+tester_email = 'Alexander.Bogdanchikov@cern.ch'
+always_report_email = 'tomas.javurek@cern.ch'
+gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
+from_email =  'atlas-adc-ddm-support@cern.ch'
+
+# run script on working_days only
 working_days = ['Wednesday']
 
 timestamp = datetime.today().strftime('%Y-%m-%d')
@@ -43,18 +52,17 @@ reports_dir = '/var/log/rucio/lost_files/reports/'
 
 
 # protection against running this script every day
-def run_judger(working_days):
+def run_judger(run_days):
 
     flog = open(log_path, 'a')
-    today_date = date.today()
-    today_day = calendar.day_name[today_date.weekday()]
-    if today_day in working_days:
-        flog.write('Today is %s.\n' % today_day)
+    today = calendar.day_name[date.today().weekday()]
+    if today in run_days:
+        flog.write('Today is %s.\n' % today)
         flog.write('I might try to work today.\n')
         return True
     else:
-        flog.write('Today is %s. This is NOT my working day! I am working only on:\n' % today_day)
-        flog.write(str(working_days) + '\n')
+        flog.write('Today is %s. This is NOT my working day! I am working only on:\n' % today)
+        flog.write(str(run_days) + '\n')
         return False
 
 
@@ -82,27 +90,28 @@ a.identity=b.identity and b.account='%s'  ''' % account
                 mails.append(str(col))
     except Exception, e:
         flog = open(log_path, 'a')
-        flog.wirte('find_mails_users\n')
+        flog.write('find_mails_users\n')
         flog.write(str(e) + '\n')
         sys.exit(CRITICAL)
     if account == 'ddmadmin' or account == 'root':
         mails = ['atlas-adc-ddm-support@cern.ch']
-    if 'tomas.javurek@cern.ch' not in mails:
-        mails.append('tomas.javurek@cern.ch')
+    if always_report_email not in mails:
+        mails.append(always_report_email)
 
     return mails
 
 
 # hardcoded, TODO
 def find_mails_gdp():
-
-    mails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
-    return mails
-
+    return gdp_emails
 
 # extracting mails of physgroups from Rucio DB
 def find_mails_groups(rse, session):
-
+    """
+    :param rse:
+    :param session:
+    :return:
+    """
     mails = []
     try:
         query = ''' select distinct email from atlas_rucio.identities where identity in
@@ -118,8 +127,8 @@ def find_mails_groups(rse, session):
         flog.write(str(e) + '\n')
         sys.exit(CRITICAL)
 
-    if 'tomas.javurek@cern.ch' not in mails:
-        mails.append('tomas.javurek@cern.ch')
+    if always_report_email not in mails:
+        mails.append(always_report_email)
 
     return mails
 
@@ -139,7 +148,7 @@ def get_rule_owners(scope, name, session):
         flog.write('get_rule_owners:')
         flog.write(str(e) + '\n')
 
-    if testmode:
+    if test_mode:
         print 'DEBUG: ', scope, name
         print 'DEBUG: rule owners', rule_owners
 
@@ -175,23 +184,22 @@ def report_collector(rse, account, session):
 # mailing agent
 def send_report(mail, report_paths):
 
-    if testmode:
+    if test_mode:
         print "DEBUG: mailing agent is accessed."
         print "DEBUG: ", mail, report_paths
 
     # defining mailing list
-    me = 'atlas-adc-ddm-support@cern.ch'
     recepients = []
 
-    if testmode:
+    if test_mode:
         print 'DEBUG: notification would be send to:', mail
-        recepients = ['tomas.javurek@cern.ch']
+        recepients = [tester_email]
     else:
         recepients = [mail]
 
     msg = MIMEMultipart()
     msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
-    msg['From'] = me
+    msg['From'] = from_email
     msg['To'] = ", ".join(recepients)
 
     # email body
@@ -213,7 +221,7 @@ def send_report(mail, report_paths):
     # attachments
     for report_path in report_paths:
         fr = open(report_path, 'rb')
-        part = MIMEBase('application', "octet-stream")
+        part = MIMEBase('text', 'plain')
         part.set_payload(fr.read())
         Encoders.encode_base64(part)
         part.add_header('Content-Disposition', 'attachment; filename="%s"' % report_path)
@@ -235,7 +243,7 @@ def send_report(mail, report_paths):
 def report_gdp():
 
     # INIT
-    if testmode:
+    if test_mode:
         print "DEBUG: making report for GDP"
         print "||||||||||||||||||||||||||||"
     if not os.path.isfile(tmpdata_path):
@@ -253,7 +261,7 @@ def report_gdp():
 def report_by_account(session):
 
     # INIT
-    if testmode:
+    if test_mode:
         print "DEBUG: making report by account"
         print "|||||||||||||||||||||||||||||||"
     if not os.path.isfile(tmpdata_path):
@@ -274,14 +282,14 @@ def report_by_account(session):
         accounts = []
 
         # find owners of rule, they are contacted as well
-        if testmode:
+        if test_mode:
             print "DEBUG: get rule owners"
         rule_owners = get_rule_owners(scope, dataset, session)
         # did_woners = get_did_owner TO BE DEVELOPED
         for own in rule_owners:
             if own not in accounts:
                 accounts.append(own)
-        if testmode:
+        if test_mode:
             print 'INFO:', rse_name, account, dataset, data_name
             if accounts == []:
                 print "DEBUG: there is no account to be notified."
@@ -295,7 +303,7 @@ def report_by_account(session):
             else:
                 data_per_account[acc].append({'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at})
 
-    if testmode:
+    if test_mode:
         print "DEBUG: creating reports and sending."
 
     # create report per account
@@ -306,15 +314,15 @@ def report_by_account(session):
 
     # send report by mail
     for account in data_per_account.keys():
-        if testmode:
+        if test_mode:
             print "DEBUG: going to send the report."
         accs.append(account)
 
-    if testmode:
+    if test_mode:
         if data_per_account == {}:
             print "DEBUG: nothing to send."
 
-    if testmode:
+    if test_mode:
         print "DEBUG: report by accnounts done."
     fi.close()
     return accs
@@ -466,7 +474,7 @@ def main():
             reps = report_collector('', acc, session)
             mails = merge_dicts(mails, reps)
     if gdp:
-        if testmode:
+        if test_mode:
             print "DEBUG: summary report to gdp"
         l_acc = report_gdp()
         for acc in l_acc:
@@ -477,8 +485,8 @@ def main():
         print "ERROR: list of emails is not distinct"
         sys.exit('ERROR: list of emails is not distinct')
 
-    if testmode:
-        send_report('tomas.javurek@cern.ch', mails['tomas.javurek@cern.ch'])
+    if test_mode:
+        send_report(tester_email, mails[tester_email])
         for m in mails.keys():
             flog = open(log_path, 'a')
             flog.write(m)
