@@ -234,7 +234,7 @@ def send_report(mail, report_paths):
     flog.write(str(report_paths))
     flog.write('\n\n')
     s = smtplib.SMTP('localhost')
-    s.sendmail(me, recepients, msg.as_string())
+    s.sendmail(from_email, recepients, msg.as_string())
     s.quit()
 
 
