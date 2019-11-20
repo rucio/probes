@@ -41,7 +41,7 @@ tester_email = 'Alexander.Bogdanchikov@cern.ch'
 #always_report_email = 'tomas.javurek@cern.ch'
 always_report_email = 'Alexander.Bogdanchikov@cern.ch'
 #gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
-gdp_emails = ['Alexander.Bogdanchikov@cern.ch']
+gdp_emails = ['agbogdan@cern.ch']
 from_email = 'atlas-adc-ddm-support@cern.ch'
 
 # run script on working_days only
@@ -49,7 +49,7 @@ working_days = ['Wednesday']
 
 timestamp = datetime.today().strftime('%Y-%m-%d')
 
-#log_dir = '/var/log/rucio/lost_files/logs/'
+#log_dir = '/var/log/rucio/lost_files/logs'
 if not test_mode:
     base_dir = '/var/log/rucio/lost_files'
 else:
@@ -198,6 +198,8 @@ def get_rule_owners(scope, name, session):
 # collects reports for given email
 def report_collector(rse, account, session):
 
+    if test_mode:
+        print ("DEBUG: report_collector was called with (%s, %s, %s)" % (rse, account, session))
     mails_reports = {}
     mail_list = []
     report_path = ''
@@ -213,11 +215,18 @@ def report_collector(rse, account, session):
     if mail_list == [] or report_path == '' or report_path == 'report_':
         return
 
+    if test_mode:
+        print ("DEBUG: report_collector created mail_list=%s" % mail_list)
+
     for mail in mail_list:
         if mail not in mails_reports:
             mails_reports[mail] = [report_path]
         else:
             mails_reports[mail].append(report_path)
+
+    if test_mode:
+        print ("DEBUG: report_collector created mail_reports=%s" % mails_reports)
+
     return mails_reports
 
 
