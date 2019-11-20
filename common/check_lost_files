@@ -71,7 +71,11 @@ def dirs_exist(dirs, create_if_not_exist = False):
     """
     for check_dir in dirs:
         if not os.path.isdir(check_dir):
-            if create_if_not_exist and not os.path.exists(check_dir):
+            if os.path.exists(check_dir):
+                if test_mode:
+                    print ('DEBUG: failure: %s exists but not a directory ' % check_dir)
+                return False
+            if create_if_not_exist:
                 try:
                     if test_mode:
                         print ('DEBUG: mkdir missed directory %s' % check_dir)
@@ -81,9 +85,10 @@ def dirs_exist(dirs, create_if_not_exist = False):
                     if test_mode:
                         print ('DEBUG: failed to mkdir missed directory %s: %s' % (check_dir, err))
                     return False
-            if test_mode:
-                print ('DEBUG: failure: directory %s is missed, flag create_if_not_exist=%s ' % (check_dir, create_if_not_exist))
-            return False
+            else:
+                if test_mode:
+                    print ('DEBUG: failure: directory %s is missed, flag create_if_not_existis is %s ' % (check_dir, create_if_not_exist))
+                return False
     return True
 
 
