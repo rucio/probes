@@ -478,6 +478,7 @@ def main():
     if not dirs_exist([base_dir, log_dir, tmp_dir, reports_dir], create_if_not_exist=create_dirs):
         sys.exit(CRITICAL)
 
+    global flog
     flog = open(log_path, 'a')
 
     run_flag = run_judger(working_days)
