@@ -198,13 +198,13 @@ def report_collector(rse, account, session):
     report_path = ''
     if groups and rse != '':
         mail_list = find_mails_groups(rse, session)
-        report_path = reports_dir + 'report_' + rse
+        report_path = reports_dir + '/' + 'report_' + rse
     if users and account != '' and account != 'gdp':
         mail_list = find_mails_users(account, session)
-        report_path = reports_dir + 'report_' + account
+        report_path = reports_dir + '/' + 'report_' + account
     if gdp and account == 'gdp':
         mail_list = find_mails_gdp()
-        report_path = reports_dir + 'report_' + account
+        report_path = reports_dir + '/' + 'report_' + account
     if mail_list == [] or report_path == '' or report_path == 'report_':
         return
 
@@ -276,7 +276,6 @@ def send_report(mail, report_paths):
 # create report for gdp
 # call mailing agent
 def report_gdp():
-
     # INIT
     if test_mode:
         print "DEBUG: making report for GDP"
@@ -294,7 +293,6 @@ def report_gdp():
 # make report by user
 # call the mailing agent
 def report_by_account(session):
-
     # INIT
     if test_mode:
         print "DEBUG: making report by account"
