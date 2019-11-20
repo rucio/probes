@@ -9,6 +9,14 @@
 # - Tomas Javurek, Cedric Serfon, 2015
 # - Alexander Bogdanchikov, 2019
 
+# the next block avoids security warnings of type
+# InsecureRequestWarning: Unverified HTTPS request is being made.
+# Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#ssl-warnings
+import urllib3.contrib.pyopenssl
+urllib3.contrib.pyopenssl.inject_into_urllib3()
+import certifi
+import urllib3
+http = urllib3.PoolManager( cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
 import os
 import sys
@@ -36,7 +44,7 @@ groups = True
 gdp = True
 
 test_mode = True
-force_rucio_select = True
+force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
 create_dirs = True
 
 #tester_email = 'tomas.javurek@cern.ch'
