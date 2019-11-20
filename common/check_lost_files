@@ -16,7 +16,7 @@ import urllib3.contrib.pyopenssl
 urllib3.contrib.pyopenssl.inject_into_urllib3()
 import certifi
 import urllib3
-http = urllib3.PoolManager( cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
 import os
 import sys
@@ -470,7 +470,8 @@ def get_bad_files_from_dump(session):
 
     flog = open(log_path, 'a')
     url = 'https://rucio-hadoop.cern.ch/lost_files'
-    dump7 = requests.get(url, verify=False)
+    dump7 = requests.get(url, verify=True) # was verify=False)
+    #dump7 = http.request("GET", url)
     if dump7.status_code == 404:
         flog.write('ERROR: dump of bad files not reachable on hadoop')
         return False
