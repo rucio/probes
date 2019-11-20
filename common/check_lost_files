@@ -30,10 +30,13 @@ from rucio.db.sqla.session import get_session
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+max_lines_inline = 30
 users = True
 groups = True
 gdp = True
+
 test_mode = True
+force_rucio_select = True
 create_dirs = True
 
 #tester_email = 'tomas.javurek@cern.ch'
@@ -60,6 +63,7 @@ tmp_dir = base_dir + '/tmp'
 reports_dir = base_dir + '/reports'
 
 tmpdata_path = tmp_dir + '/rse-lost-files.txt'
+tmpdata_path2 = tmp_dir + '/rse-lost-files2.txt'
 log_path = log_dir + "/" + timestamp + '.log'
 
 def dirs_exist(dirs, create_if_not_exist = False):
@@ -260,11 +264,14 @@ def send_report(to_mail, report_paths):
         for lost_file in fr.readlines():
             lines.append(lost_file)
         fr.close()
-        if len(lines) > 20:
+        if len(lines) > max_lines_inline:
+            lines.append('... (see the full list in attachment!)')
             break
-    if len(lines) < 21:
-        for l in lines:
-            msg.attach(MIMEText(str(l)))
+
+
+    #if len(lines) <= max_lines_inline:
+    for l in lines:
+        msg.attach(MIMEText(str(l)))
 
     # attachments
     for report_path in report_paths:
@@ -283,7 +290,8 @@ def send_report(to_mail, report_paths):
     flog = open(log_path, 'a')
     flog.write('Reports were sent to:\n')
     flog.write(str(recipients))
-    if (recipients != [to_mail]):        flog.write(" - for test, would be: " + to_mail )
+    if (recipients != [to_mail]):
+        flog.write(" - for test, would be: " + to_mail )
     flog.write(str(report_paths))
     flog.write('\n\n')
 
@@ -417,9 +425,9 @@ def report_by_rses(session):
 
 
 # the input
-def get_bad_files(session):
+def get_bad_files(session, outfile=tmpdata_path):
 
-    f = open(tmpdata_path, 'w')
+    f = open(outfile, 'w')
     try:
         query = ''' select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b
  where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D'and a.scope=b.child_scope and a.name=b.child_name '''
@@ -505,6 +513,12 @@ def main():
         get_input = get_bad_files(session)
         if not get_input:
             sys.exit(CRITICAL)
+    elif force_rucio_select:
+        print 'WARNING: forced rucio select flag is on, so call rucio'
+        get_input = get_bad_files(session, outfile=tmpdata_path2)
+        if not get_input:
+            sys.exit(CRITICAL)
+
     # make and sent report to groups
     if groups:
         l_rses = report_by_rses(session)
@@ -542,7 +556,7 @@ def main():
 
     # clean tmp
     cmd = 'rm ' + tmpdata_path
-    os.system(cmd)
+    #os.system(cmd)
 
     sys.exit(OK)
 
