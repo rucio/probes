@@ -283,8 +283,7 @@ def send_report(to_mail, report_paths):
     flog = open(log_path, 'a')
     flog.write('Reports were sent to:\n')
     flog.write(recipients)
-    if (recipients != [to_mail])
-        flog.write(" - for test, would be: " + to_mail )
+    if (recipients != [to_mail]):        flog.write(" - for test, would be: " + to_mail )
     flog.write(str(report_paths))
     flog.write('\n\n')
 
