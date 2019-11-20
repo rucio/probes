@@ -284,7 +284,7 @@ def report_gdp():
         print "ERROR: lost files not downloaded"
         sys.exit(CRITICAL)
 
-    cmd = 'cp %s %s' % (tmpdata_path, reports_dir + '/report_gdp')
+    cmd = 'cp %s %s' % (tmpdata_path, reports_dir + '/' + 'report_gdp')
     os.system(cmd)
 
     return ['gdp']
@@ -341,7 +341,7 @@ def report_by_account(session):
 
     # create report per account
     for account in data_per_account.keys():
-        fo = open(reports_dir + 'report_' + account, 'w')
+        fo = open(reports_dir + '/' + 'report_' + account, 'w')
         for bad_file in data_per_account[account]:
             fo.write("%s %s %s %s\n" % (bad_file['scope'], bad_file['dataset'], bad_file['name'], bad_file['time']))
 
@@ -389,7 +389,7 @@ def report_by_rses(session):
 
     # create report per rse
     for rse in data_per_rse.keys():
-        fo = open(reports_dir + 'report_' + rse, 'w')
+        fo = open(reports_dir + '/' + 'report_' + rse, 'w')
         for bad_file in data_per_rse[rse]:
             fo.write("%s %s %s %s\n" % (bad_file['scope'], bad_file['dataset'], bad_file['name'], bad_file['time']))
 
