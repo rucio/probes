@@ -96,6 +96,7 @@ def dirs_exist(dirs, create_if_not_exist = False):
 def run_judger(run_days):
 
     today = calendar.day_name[date.today().weekday()]
+    flog = open(log_path, 'a')
     if today in run_days:
         flog.write('Today is %s.\n' % today)
         flog.write('I might try to work today.\n')
@@ -231,25 +232,23 @@ def report_collector(rse, account, session):
 
 
 # mailing agent
-def send_report(mail, report_paths):
+def send_report(to_mail, report_paths):
 
     if test_mode:
-        print "DEBUG: mailing agent is accessed."
-        print "DEBUG: ", mail, report_paths
+        #print "DEBUG: mailing agent is accessed."
+        print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, report_paths))
 
     # defining mailing list
-    recepients = []
-
     if test_mode:
-        print 'DEBUG: notification would be send to:', mail
-        recepients = [tester_email]
+        print 'DEBUG: notification would be send to:', to_mail
+        recipients = [tester_email]
     else:
-        recepients = [mail]
+        recipients = [to_mail]
 
     msg = MIMEMultipart()
     msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
     msg['From'] = from_email
-    msg['To'] = ", ".join(recepients)
+    msg['To'] = ", ".join(recipients)
 
     # email body
     msg.attach(MIMEText('Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.' + "\n\n"))
@@ -277,14 +276,17 @@ def send_report(mail, report_paths):
         msg.attach(part)
 
     # sending email, s=server
+    s = smtplib.SMTP('localhost')
+    s.sendmail(from_email, recipients, msg.as_string())
+    s.quit()
+
     flog = open(log_path, 'a')
     flog.write('Reports were sent to:\n')
-    flog.write(mail)
+    flog.write(recipients)
+    if (recipients != [to_mail])
+        flog.write(" - for test, would be: " + to_mail )
     flog.write(str(report_paths))
     flog.write('\n\n')
-    s = smtplib.SMTP('localhost')
-    s.sendmail(from_email, recepients, msg.as_string())
-    s.quit()
 
 
 # create report for gdp
@@ -489,9 +491,6 @@ def main():
     # check folder hierarchy
     if not dirs_exist([base_dir, log_dir, tmp_dir, reports_dir], create_if_not_exist=create_dirs):
         sys.exit(CRITICAL)
-
-    global flog
-    flog = open(log_path, 'a')
 
     run_flag = run_judger(working_days)
     if not run_flag:
