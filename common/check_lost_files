@@ -9,7 +9,6 @@
 # - Tomas Javurek, Cedric Serfon, 2015
 # - Alexander Bogdanchikov, 2019
 
-
 import os
 import sys
 import smtplib
@@ -30,10 +29,13 @@ from rucio.db.sqla.session import get_session
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+max_lines_inline = 30
 users = True
 groups = True
 gdp = True
+
 test_mode = True
+force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
 create_dirs = True
 
 #tester_email = 'tomas.javurek@cern.ch'
@@ -41,7 +43,7 @@ tester_email = 'Alexander.Bogdanchikov@cern.ch'
 #always_report_email = 'tomas.javurek@cern.ch'
 always_report_email = 'Alexander.Bogdanchikov@cern.ch'
 #gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
-gdp_emails = ['Alexander.Bogdanchikov@cern.ch']
+gdp_emails = ['agbogdan@cern.ch']
 from_email = 'atlas-adc-ddm-support@cern.ch'
 
 # run script on working_days only
@@ -49,7 +51,7 @@ working_days = ['Wednesday']
 
 timestamp = datetime.today().strftime('%Y-%m-%d')
 
-#log_dir = '/var/log/rucio/lost_files/logs/'
+#log_dir = '/var/log/rucio/lost_files/logs'
 if not test_mode:
     base_dir = '/var/log/rucio/lost_files'
 else:
@@ -60,6 +62,7 @@ tmp_dir = base_dir + '/tmp'
 reports_dir = base_dir + '/reports'
 
 tmpdata_path = tmp_dir + '/rse-lost-files.txt'
+tmpdata_path2 = tmp_dir + '/rse-lost-files2.txt'
 log_path = log_dir + "/" + timestamp + '.log'
 
 def dirs_exist(dirs, create_if_not_exist = False):
@@ -96,6 +99,7 @@ def dirs_exist(dirs, create_if_not_exist = False):
 def run_judger(run_days):
 
     today = calendar.day_name[date.today().weekday()]
+    flog = open(log_path, 'a')
     if today in run_days:
         flog.write('Today is %s.\n' % today)
         flog.write('I might try to work today.\n')
@@ -198,6 +202,8 @@ def get_rule_owners(scope, name, session):
 # collects reports for given email
 def report_collector(rse, account, session):
 
+    if test_mode:
+        print ("DEBUG: report_collector was called with (%s, %s, %s)" % (rse, account, session))
     mails_reports = {}
     mail_list = []
     report_path = ''
@@ -213,34 +219,39 @@ def report_collector(rse, account, session):
     if mail_list == [] or report_path == '' or report_path == 'report_':
         return
 
+    if test_mode:
+        print ("DEBUG: report_collector created mail_list=%s" % mail_list)
+
     for mail in mail_list:
         if mail not in mails_reports:
             mails_reports[mail] = [report_path]
         else:
             mails_reports[mail].append(report_path)
+
+    if test_mode:
+        print ("DEBUG: report_collector created mail_reports=%s" % mails_reports)
+
     return mails_reports
 
 
 # mailing agent
-def send_report(mail, report_paths):
+def send_report(to_mail, report_paths):
 
     if test_mode:
-        print "DEBUG: mailing agent is accessed."
-        print "DEBUG: ", mail, report_paths
+        #print "DEBUG: mailing agent is accessed."
+        print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, report_paths))
 
     # defining mailing list
-    recepients = []
-
     if test_mode:
-        print 'DEBUG: notification would be send to:', mail
-        recepients = [tester_email]
+        print 'DEBUG: notification would be send to:', to_mail
+        recipients = [tester_email]
     else:
-        recepients = [mail]
+        recipients = [to_mail]
 
     msg = MIMEMultipart()
     msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
     msg['From'] = from_email
-    msg['To'] = ", ".join(recepients)
+    msg['To'] = ", ".join(recipients)
 
     # email body
     msg.attach(MIMEText('Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.' + "\n\n"))
@@ -252,11 +263,14 @@ def send_report(mail, report_paths):
         for lost_file in fr.readlines():
             lines.append(lost_file)
         fr.close()
-        if len(lines) > 20:
+        if len(lines) > max_lines_inline:
+            lines.append('... (see the full list in attachment!)')
             break
-    if len(lines) < 21:
-        for l in lines:
-            msg.attach(MIMEText(str(l)))
+
+
+    #if len(lines) <= max_lines_inline:
+    for l in lines:
+        msg.attach(MIMEText(str(l)))
 
     # attachments
     for report_path in report_paths:
@@ -268,14 +282,17 @@ def send_report(mail, report_paths):
         msg.attach(part)
 
     # sending email, s=server
+    s = smtplib.SMTP('localhost')
+    s.sendmail(from_email, recipients, msg.as_string())
+    s.quit()
+
     flog = open(log_path, 'a')
     flog.write('Reports were sent to:\n')
-    flog.write(mail)
+    flog.write(str(recipients))
+    if (recipients != [to_mail]):
+        flog.write(" - for test, would be: " + to_mail )
     flog.write(str(report_paths))
     flog.write('\n\n')
-    s = smtplib.SMTP('localhost')
-    s.sendmail(from_email, recepients, msg.as_string())
-    s.quit()
 
 
 # create report for gdp
@@ -361,7 +378,7 @@ def report_by_account(session):
             print "DEBUG: nothing to send."
 
     if test_mode:
-        print "DEBUG: report by accnounts done."
+        print "DEBUG: report by accounts done."
     fi.close()
     return accs
 
@@ -407,9 +424,9 @@ def report_by_rses(session):
 
 
 # the input
-def get_bad_files(session):
+def get_bad_files(session, outfile=tmpdata_path):
 
-    f = open(tmpdata_path, 'w')
+    f = open(outfile, 'w')
     try:
         query = ''' select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b
  where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D'and a.scope=b.child_scope and a.name=b.child_name '''
@@ -481,9 +498,6 @@ def main():
     if not dirs_exist([base_dir, log_dir, tmp_dir, reports_dir], create_if_not_exist=create_dirs):
         sys.exit(CRITICAL)
 
-    global flog
-    flog = open(log_path, 'a')
-
     run_flag = run_judger(working_days)
     if not run_flag:
         sys.exit(OK)
@@ -498,6 +512,12 @@ def main():
         get_input = get_bad_files(session)
         if not get_input:
             sys.exit(CRITICAL)
+    elif force_rucio_select:
+        print 'WARNING: forced rucio select flag is on, so call rucio'
+        get_input = get_bad_files(session, outfile=tmpdata_path2)
+        if not get_input:
+            sys.exit(CRITICAL)
+
     # make and sent report to groups
     if groups:
         l_rses = report_by_rses(session)
@@ -535,7 +555,7 @@ def main():
 
     # clean tmp
     cmd = 'rm ' + tmpdata_path
-    os.system(cmd)
+    #os.system(cmd)
 
     sys.exit(OK)
 
