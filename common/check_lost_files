@@ -86,10 +86,10 @@ def dirs_exist(dirs, create_if_not_exist = False):
             return False
     return True
 
+
 # protection against running this script every day
 def run_judger(run_days):
 
-    flog = open(log_path, 'a')
     today = calendar.day_name[date.today().weekday()]
     if today in run_days:
         flog.write('Today is %s.\n' % today)
@@ -474,15 +474,17 @@ def get_bad_files_from_dump(session):
 
 def main():
 
+    # check folder hierarchy
+    if not dirs_exist([base_dir, log_dir, tmp_dir, reports_dir], create_if_not_exist=create_dirs):
+        sys.exit(CRITICAL)
+
+    flog = open(log_path, 'a')
+
     run_flag = run_judger(working_days)
     if not run_flag:
         sys.exit(OK)
 
     session = get_session()
-
-    # check folder hierarchy
-    if not dirs_exist([base_dir, log_dir, tmp_dir, reports_dir], create_if_not_exist=create_dirs):
-        sys.exit(CRITICAL)
 
     mails = {}
     # get input
