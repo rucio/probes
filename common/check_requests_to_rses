@@ -7,21 +7,26 @@
 #
 # Authors:
 # - Wen Guan, <wguan@cern.ch>, 2014
+# - Eric Vaandering, <ewv@fnal.gov>, 2019
 
-'''
+"""
 Probe to check requests.
-'''
+"""
 
 import datetime
 import sys
 import time
 
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
 
 if __name__ == "__main__":
 
@@ -35,8 +40,8 @@ if __name__ == "__main__":
         timezoneoffset = int((datetime.datetime.now() - datetime.datetime.utcnow()).seconds)
 
         # check requests to different sites
-        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ atlas_rucio.id2rse(dest_rse_id) rse, state, count(*) \
-               from atlas_rucio.requests where request_type='T'  group by dest_rse_id, state"
+        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}id2rse(dest_rse_id) rse, state, count(*) \
+               from {schema}requests where request_type='T'  group by dest_rse_id, state".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print "requests.%s.%s %s" % (state, rse, num)
@@ -44,8 +49,9 @@ if __name__ == "__main__":
 
         # check left requests which are 12 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=12)
-        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ atlas_rucio.id2rse(dest_rse_id) rse, state, count(*) \
-              from atlas_rucio.requests where request_type='T' and created_at<=to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state"
+        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}d2rse(dest_rse_id) rse, state, count(*) \
+              from {schema}requests where request_type='T' and created_at<=to_timestamp('".format(schema=schema) \
+              + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.12Hours_old.%s.%s %s' % (state, rse, num)
@@ -53,8 +59,9 @@ if __name__ == "__main__":
 
         # check left requests which are 24 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
-        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ atlas_rucio.id2rse(dest_rse_id) rse, state, count(*) \
-              from atlas_rucio.requests where request_type='T' and created_at<=to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state"
+        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}id2rse(dest_rse_id) rse, state, count(*) \
+              from {schema}requests where request_type='T' and created_at<=to_timestamp('".format(schema=schema) \
+              + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.24Hours_old.%s.%s %s' % (state, rse, num)
@@ -62,8 +69,9 @@ if __name__ == "__main__":
 
         # check left requests which are 48 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=48)
-        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ atlas_rucio.id2rse(dest_rse_id) rse, state, count(*) from atlas_rucio.requests \
-               where request_type='T' and created_at<=to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state"
+        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}id2rse(dest_rse_id) rse, state, count(*) from {schema}requests \
+               where request_type='T' and created_at<=to_timestamp('".format(schema=schema) + str(timeLimit) \
+              + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.48Hours_old.%s.%s %s' % (state, rse, num)
