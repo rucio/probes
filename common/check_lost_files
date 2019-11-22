@@ -35,6 +35,7 @@ groups = True
 gdp = True
 
 test_mode = True
+force_to_work_any_day = True # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
 create_dirs = True
 
@@ -68,7 +69,7 @@ log_path = log_dir + "/" + timestamp + '.log'
 def dirs_exist(dirs, create_if_not_exist = False):
     """
     checks the existence of directories and create them if not exist
-    :param dirs: list of directories, check starts from the beginning of the list
+    :param dirs: list of directories. Check starts from the beginning of the list
     :param create_if_not_exist: flag to create directories if not exists
     :return: True on success, False otherwise
     """
@@ -97,7 +98,11 @@ def dirs_exist(dirs, create_if_not_exist = False):
 
 # protection against running this script every day
 def run_judger(run_days):
-
+    """
+    judge if the script has to run today according to run_days + allow run if force_to_work_day and test_mode flags are set
+    :param run_days: list of days to run
+    :return:  True if script can run
+    """
     today = calendar.day_name[date.today().weekday()]
     flog = open(log_path, 'a')
     if today in run_days:
@@ -106,7 +111,14 @@ def run_judger(run_days):
         return True
     else:
         flog.write('Today is %s. This is NOT my working day! I am working only on:\n' % today)
-        flog.write(str(run_days) + '\n')
+        flog.write("My run days are: " + run_days + '\n')
+        if test_mode and force_to_work_any_day:
+            print (
+                    "INFO: I do not run on %s. Now I run because test_mode and force_to_work_any_day flags are set\n"
+                    % today
+            )
+            flog.write("The test_mode and force_to_work_any_day flags are set, I will run\n")
+            return True
         return False
 
 
