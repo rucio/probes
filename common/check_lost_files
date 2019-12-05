@@ -37,7 +37,7 @@ groups = True
 gdp = True
 
 test_mode = True
-test_mode_use_tmp_file = True # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
+test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
 create_dirs = True
@@ -60,7 +60,7 @@ timestamp_long = datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
 if not test_mode:
     base_dir = '/var/log/rucio/lost_files'
 else:
-    base_dir = '/afs/cern.ch/user/a/agbogdan/lost_files'  #+ "-" + timestamp_long
+    base_dir = '/afs/cern.ch/user/a/agbogdan/lost_files'  # + "-" + timestamp_long
 
 log_dir = base_dir + '/logs'
 tmp_dir = base_dir + '/tmp'
@@ -89,7 +89,8 @@ def print_time(method):
         tstart = time.time()
         result = method(*args, **kwargs)
         tend = time.time()
-        print '%s finished in %.3f s: %r(%s)' % (datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), tend - tstart, method.__name__, method_args)
+        print '%s finished in %.3f s: %r(%s)' % (
+        datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), tend - tstart, method.__name__, method_args)
         return result
 
     return inner
@@ -228,12 +229,13 @@ def find_mails_groups(rse, session):
 
     return mails
 
+
 # find account for rule on given did
 @print_time
 def get_rule_owners(scope, name, session):
     rule_owners = []
     try:
-        query =  "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
+        query = "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
         print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
         result = session.execute(query)
         print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
@@ -309,10 +311,11 @@ def send_report(to_mail, report_paths):
 
     # always send the list, to avoid an empty message body
     # create body lines
+    message_top = 'Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.\n'
     header = '<html><body>\n'
-    header += '<p>Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.\n'
     footer = "</body></html>\n"
     lines = []
+    lines_txt = []
     all_inline = True
     for report_path in report_paths:
         fr = open(report_path, 'r')
@@ -320,30 +323,34 @@ def send_report(to_mail, report_paths):
             if len(lines) > max_lines_inline:
                 all_inline = False
                 break
+            lines_txt.append(lost_file)
             # convert to html
-            table_row = '<tr><td>' + lost_file.replace('\n', '').replace(' ', '</td><td>') + '</td></tr>\n'
-            lines.append(table_row)
+            html_line = '<tr><td>' + lost_file.replace('\n', '').replace(' ', '</td><td>') + '</td></tr>\n'
+            lines.append(html_line)
         fr.close()
         if not all_inline:
             break
 
-    #for l in lines:
+    # for l in lines:
     #   msg.attach(MIMEText(str(l)))
 
     if all_inline:
-        header += 'All lost files are presented in this inline list.</p>\n'
+        message_top += 'All lost files are presented in this inline list.\n'
     else:
-        header += 'This list is NOT FULL,  all lost files info is in attachments.</p>\n'
-        lines.append('<tr>' + '<td>...</td>'*4 + '</tr>')
+        message_top += 'This list is NOT FULL,  all lost files info is in attachments.\n'
+        lines_txt.append('...')
+        lines.append('<tr>' + '<td>...</td>' * 4 + '</tr>')
 
+    table_txt = ''.join(lines_txt)
     table = '<table cellspacing="0" cellpadding="0" border="1">\n' + ''.join(lines) + '</table>'
-    msg.attach(MIMEText(header + table  + footer, 'html'))
+    msg.attach(MIMEText(message_top + table_txt, 'plain'))
+    msg.attach(MIMEText(header + '<p>' + message_top + '</p>' + table + footer, 'html'))
 
     # attachments
     for report_path in report_paths:
         fr = open(report_path, 'rb')
         part = MIMEBase('text', 'plain')
-        #part = MIMEBase('application', "octet-stream")
+        # part = MIMEBase('application', "octet-stream")
         part.set_payload(fr.read())
         Encoders.encode_base64(part)
         part.add_header('Content-Disposition', 'attachment; filename="%s"' % report_path)
@@ -381,10 +388,14 @@ def report_gdp():
     return ['gdp']
 
 
-# make report by user
-# call the mailing agent
 @print_time
 def report_by_account(session):
+    """
+     inspect lost file lines in in tmpdata_path, find account responsible for the lost file,
+     build dictionary account -> lost_files_accoiunt
+    :param session:
+    :return:
+    """
     # INIT
     if test_mode:
         print "DEBUG: making report by account"
@@ -398,6 +409,7 @@ def report_by_account(session):
 
     # loop over lost files from get_bad_files()
     for line in fi.readlines():
+        line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
         scope = line.split(' ')[0]
         data_name = line.split(' ')[1]
         dataset = line.split(' ')[3]
@@ -422,13 +434,12 @@ def report_by_account(session):
                 print "DEBUG: rule owners found:", accounts
             print '======================='
 
+        add_str = "%s %s %s %s" % (scope, dataset, data_name, updated_at)  # for some strange reason f
         for acc in accounts:
             if acc not in data_per_account.keys():
-                data_per_account[acc] = [
-                    {'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at}]
-            else:
-                data_per_account[acc].append(
-                    {'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at})
+                data_per_account[acc] = []
+            data_per_account[acc].append(add_str)
+            # {'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at})
 
     if test_mode:
         print "DEBUG: creating reports and sending."
@@ -437,7 +448,8 @@ def report_by_account(session):
     for account in data_per_account.keys():
         fo = open(reports_dir + '/' + 'report_' + account, 'w')
         for bad_file in data_per_account[account]:
-            fo.write("%s %s %s %s\n" % (bad_file['scope'], bad_file['dataset'], bad_file['name'], bad_file['time']))
+            fo.write(bad_file)
+            # fo.write("%s %s %s %s\n" % (bad_file['scope'], bad_file['dataset'], bad_file['name'], bad_file['time']))
 
     # send report by mail
     for account in data_per_account.keys():
@@ -469,6 +481,7 @@ def report_by_rses(session):
 
     # loop over lost files from get_bad_files()
     for line in fi.readlines():
+        line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
         scope = line.split(' ')[0]
         data_name = line.split(' ')[1]
         dataset = line.split(' ')[3]
@@ -502,8 +515,9 @@ def report_by_rses(session):
 # the input
 @print_time
 def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
-    if test_mode and test_mode_use_tmp_file and  os.path.isfile(tmpdata_path) and os.stat(tmpdata_path).st_size>0:
-        print('the flags "test_mode" and "test_mode_use_tmp_file" are set: do not query rucio, use tmp file "%s" instead' % tmpdata_path)
+    if test_mode and test_mode_use_tmp_file and os.path.isfile(tmpdata_path) and os.stat(tmpdata_path).st_size > 0:
+        print(
+                    'the flags "test_mode" and "test_mode_use_tmp_file" are set: do not query rucio, use tmp file "%s" instead' % tmpdata_path)
         return True
     f = open(outfile, 'w')
     try:
@@ -531,7 +545,7 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
                 " where a.state='L' and  b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
                 " where T.dataset not like 'panda.%' and T.dataset not like '%_sub%' "
             )
-            query3 = ( # query1 + nested select conditions on bad_repilicas table first
+            query3 = (  # query1 + nested select conditions on bad_repilicas table first
                 "select * from"
                 " ( select a.scope as scope, a.name as name, b.scope as bscope,  b.name as dataset, atlas_rucio.id2rse(a.rse_id) as rse, a.account as account, a.updated_at as upd"
                 " from (select scope, name, rse_id, account, updated_at from atlas_rucio.bad_replicas  where updated_at>sysdate-7 and state='L' ) a,"  # at first limit selection to the interval
@@ -567,13 +581,13 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
                 continue
             else:
                 processed_files.append(f_did)
-            #for col in row:
+            # for col in row:
             #    f.write('%s ' % col)
-            #f.write('\n')
+            # f.write('\n')
 
             # shorter and does not add a trailing space (not nice + dump results are stored without the trailing spaces)
             # str() conversion is necessary, as row[6] has datetime type
-            f.write(' '.join(str(x) for x in row)+'\n')
+            f.write(' '.join(str(x) for x in row) + '\n')
 
     except Exception, e:
         flog = open(log_path, 'a')
@@ -653,8 +667,8 @@ def main():
             sys.exit(CRITICAL)
     elif force_rucio_select:
         print 'WARNING: forced rucio select flag is on, so call rucio'
-        #get_input = get_bad_files(session, outfile=tmpdata_path2)
-        #if not get_input:
+        # get_input = get_bad_files(session, outfile=tmpdata_path2)
+        # if not get_input:
         #    sys.exit(CRITICAL)
         get_input = get_bad_files(session, outfile=tmpdata_path3, orig_query=False)
         if not get_input:
