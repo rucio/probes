@@ -303,12 +303,13 @@ def send_report(to_mail, report_paths):
     else:
         recipients = [to_mail]
 
-    msg = MIMEMultipart('alternative')
+    msg = MIMEMultipart('mixed')
     msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
     # note: from_mail will be specified in the smtplib.
     # msg['From'] = from_email
     msg['To'] = ", ".join(recipients)
 
+    msgAlt = MIMEMultipart('alternative')
     # always send the list, to avoid an empty message body
     # create body lines
     message_top = 'Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.\n'
@@ -343,8 +344,9 @@ def send_report(to_mail, report_paths):
 
     table_txt = ''.join(lines_txt)
     table = '<table cellspacing="0" cellpadding="0" border="1">\n' + ''.join(lines) + '</table>'
-    msg.attach(MIMEText(message_top + table_txt, 'plain'))
-    msg.attach(MIMEText(header + '<p>' + message_top + '</p>' + table + footer, 'html'))
+    msgAlt.attach(MIMEText(message_top + table_txt, 'plain'))
+    msgAlt.attach(MIMEText(header + '<p>' + message_top + '</p>' + table + footer, 'html'))
+    msg.attach(msgAlt)
 
     # attachments
     for report_path in report_paths:
@@ -434,7 +436,7 @@ def report_by_account(session):
                 print "DEBUG: rule owners found:", accounts
             print '======================='
 
-        add_str = "%s %s %s %s" % (scope, dataset, data_name, updated_at)  # for some strange reason f
+        add_str = "%s %s %s %s\n" % (scope, dataset, data_name, updated_at)  # for some strange reason f
         for acc in accounts:
             if acc not in data_per_account.keys():
                 data_per_account[acc] = []
@@ -638,7 +640,7 @@ def get_bad_files_from_dump(session):
             continue
         else:
             processed_files.append(f_did)
-        updated_at = time.strftime('%Y-%m-%d', time.localtime(float(data[6])))
+        updated_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(data[6])))  # agb: time was added for compatabiliity with tmp_file from rucio request
         f.write('%s %s %s %s %s %s %s\n' % (data[0], data[1], data[2], data[3], data[4], data[5], updated_at))
     flog.write('INFO: dump contains %i lines\n' % line_counter)
 
