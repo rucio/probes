@@ -22,7 +22,8 @@ from email import Encoders
 # from rucio.common.config import config_get
 from datetime import datetime
 from datetime import date
-#import pandas as pd
+# pandas to prepare statistics  RSE:scope:count, may be used to re-implement all the script
+import pandas as pd
 
 from rucio.db.sqla.session import get_session
 
@@ -38,25 +39,29 @@ gdp = True
 
 test_mode = True
 test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
-test_mode_print_time = False # count time spent in methods
+test_mode_print_time = True # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
 create_dirs = True
 
 always_report_email = 'tomas.javurek@cern.ch'
 gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
-#from_email = 'atlas-adc-ddm-support@cern.ch'
-from_email = 'Alexander.Bogdanchikov@cern.ch'
+from_email = 'atlas-adc-ddm-support@cern.ch'
+ddm_admin_accounts = ['ddmadmin', 'root']
+ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
+# from_email = 'Alexander.Bogdanchikov@cern.ch'
 
 # in test_mode specify in mails_to_test list the emails addresses which lost_files correspondence you want to check
 # The mail  which supposed to be sent to this addresses will be sent to tester_email instead. The full list of emails  can be found in the script log
-#mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
-mails_to_test = [ 'atlas-adc-panda-support@cern.ch', 'atlas-adc-dpa@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
+# mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
+# mails_to_test = ['atlas-adc-panda-support@cern.ch', 'atlas-adc-dpa@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
+# mails_to_test = ['atlas-adc-ddm-support@cern.ch', 'atlas-adc-dpa@cern.ch']
+mails_to_test = ['atlas-adc-ddm-support@cern.ch']
+
 # tester_email = 'tomas.javurek@cern.ch'
 #tester_email = 'david.cameron@cern.ch'
+#tester_email = 'dimitrios.christidis@cern.ch'
 tester_email = 'Alexander.Bogdanchikov@cern.ch'
-
-
 # run script on working_days only
 working_days = ['Wednesday']
 
@@ -75,7 +80,7 @@ reports_dir = base_dir + '/reports'
 
 stat_rse_count = {}  # { rse1 : 2, rse2 : 32 ... }
 stat_mail_rse = {}  # { mail1: [rse1, ...] ...}
-stat_acc_count = {} # { acc1 : 232, acc2: 44 ...}
+stat_acc_count = {}  # { acc1 : 232, acc2: 44 ...}
 stat_mail_acc = {}  # { mail1: [acc1, ...] ...}
 
 if not test_mode:
@@ -88,10 +93,11 @@ tmpdata_path3 = tmp_dir + '/rse-lost-files-rucio-test-' + timestamp_long + '.txt
 
 log_path = log_dir + "/" + timestamp_long + '.log'
 
+
 # decorator to print method execution time (when flags are set)
 def print_time(method):
     def inner(*args, **kwargs):
-        if not test_mode or not test_mode_print_time:  #  print only in test mode when test_mode_print_time is on
+        if not test_mode or not test_mode_print_time:  # print only in test mode when test_mode_print_time is on
             return method(*args, **kwargs)
         arg_names = method.func_code.co_varnames[:method.func_code.co_argcount]
         method_args = ', '.join('%s=%r' % entry for entry in
@@ -135,7 +141,7 @@ def dirs_exist(dirs, create_if_not_exist=False):
             else:
                 if test_mode:
                     print ('DEBUG: failure: directory %s is missed, flag create_if_not_existis is %s ' % (
-                    check_dir, create_if_not_exist))
+                        check_dir, create_if_not_exist))
                 return False
     return True
 
@@ -195,7 +201,7 @@ a.identity=b.identity and b.account='%s'  ''' % account
         for row in result:
             for col in row:
                 mlow = str(col).lower()
-                if mlow not in mails_lowcase: # avoid of sending two emails  to same email in different cases (Alessandro.de.Salvo@cern.ch and alessandro.de.salvo@cern.ch)
+                if mlow not in mails_lowcase:  # avoid of sending two emails  to same email in different cases (Alessandro.de.Salvo@cern.ch and alessandro.de.salvo@cern.ch)
                     mails_lowcase.append(mlow)
                     mails.append(str(col))
     except Exception, e:
@@ -203,8 +209,8 @@ a.identity=b.identity and b.account='%s'  ''' % account
         flog.write('find_mails_users\n')
         flog.write(str(e) + '\n')
         sys.exit(CRITICAL)
-    if account == 'ddmadmin' or account == 'root':
-        mails = ['atlas-adc-ddm-support@cern.ch']
+    if account in ddm_admin_accounts:
+        mails = ddm_admin_mails
     if always_report_email not in mails:
         mails.append(always_report_email)
 
@@ -325,33 +331,63 @@ def report_collector(rse, account, session):
     return mails_reports
 
 
-
-def prepare_stat_table (to_mail, stat_mail, stat_count, col1, col2):
+@print_time
+def prepare_rse_scope_table(to_mail):
     """
-    prepare sting with the table of reverse sorted simple stats table in text and html formats
+    prepare strings with the table statistics
+    :return:
+    text_table_string, html_table_string
+    """
+    if to_mail not in ddm_admin_mails and to_mail not in gdp_emails and to_mail not in always_report_email:
+        return '', ''
+    df = pd.read_csv(tmpdata_path, sep=" |\t",
+                     names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
+    df1 = df[['rse', 'scope']]
+    df1.loc[df1['scope'].str.startswith('user.'), 'scope'] = 'user.*'
+    sr = df1.groupby(['rse', 'scope']).size().sort_values(ascending=False)
+    if len(sr) == 0:
+        return '', ''
+    stat_text = "\nRSE-scope-count table:\n"
+    stat_html = "<tr><td>RSE</td><td>Scope</td><td>Lost files</td></tr>\n"
+    for it in sr.iteritems():
+        rse = it[0][0]
+        scope = it[0][1]
+        count = it[1]
+        stat_text += "%s  %s %s\n" % (rse, scope, count)
+        stat_html += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % (rse, scope, count)
+    stat_html = '<p>Total summary of ALL lost files:</p><table cellspacing="0" cellpadding="1" border="1">\n' + stat_html + '</table>\n'
+    if test_mode:
+        print "test mode: prepare_rse_scope_table() prepared to %s: stat_text=%s, stat_html=%s\n" % (to_mail, stat_text, stat_html)
+    return stat_text, stat_html
+
+
+def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
+    """
+    prepare  a sting with the table of reverse sorted simple stats table in text and html formats
     subj = rse, subj = account
     :param to_mail:  compose the stat table to to_mail
     :param stat_mail: { mail1: [subj1, ...] ...}
     :param stat_count:  { subj1 : 2, subj2 : 32 ... }
     :param col1: table column1 name
     :param col2: table column2 name
-    :return:  text_string, html_string
+    :return:  text_table_string, html_table_string
     """
 
-    # prepare table with rse statistics
+    # prepare table with statistics
     stat_text = ''
     stat_html = ''
     if to_mail in stat_mail.keys():
         if test_mode:
             print "to_mail=" + str(to_mail)
-            print "stat_mail %s="%col1 + str(stat_mail)
-            print "stat_count %s="%col1 + str(stat_count)
+            print "stat_mail %s=" % col1 + str(stat_mail)
+            print "stat_count %s=" % col1 + str(stat_count)
         rsec = {}  # rsec[subj] = count
         for x in stat_mail[to_mail]:  # x = rse
             rsec[x] = stat_count[x]  # create not-sorted dictionary
         if test_mode:
             print "rsec=" + str(rsec)
-        tlist = sorted(rsec.items(), key=lambda el: el[1], reverse=True)  # dictionary can not be sorted, but can get a sorted tuple presentation
+        tlist = sorted(rsec.items(), key=lambda el: el[1],
+                       reverse=True)  # dictionary can not be sorted, but can get a sorted tuple presentation
         if test_mode:
             print "tlist=" + str(tlist)
         stat_html += "<tr><td>%s</td><td>%s</td></tr>\n" % (col1, col2)
@@ -360,24 +396,24 @@ def prepare_stat_table (to_mail, stat_mail, stat_count, col1, col2):
             stat_text += "%s :  %d\n" % (subj, c)
             stat_html += "<tr><td>%s</td><td>%d</td></tr>\n" % (subj, c)
             total_counter += c
-        if (len(tlist)>1):  # to not print Total for table with one line only
+        if (len(tlist) > 1):  # to not print Total for table with one line only
             say_total = "Total"
             stat_text += "%s: %s\n" % (say_total, total_counter)
             stat_html += "<tr><td>%s</td><td>%d</td></tr>\n" % (say_total, total_counter)
-        stat_text = "Number of lost files in %ss:\n"%col1 + stat_text + "Total: %s" % total_counter
-        stat_html = '<table cellspacing="0" cellpadding="1" border="1">\n' + stat_html + '</table>\n'
+        stat_text = "\nNumber of lost files in %ss:\n" % col1 + stat_text + "Total: %s\n" % total_counter
+        stat_html = '<p>"%s / %s" summary of your reports:</p><table cellspacing="0" cellpadding="1" border="1">\n'  % (col1, col2) + stat_html + '</table>\n'
     return stat_text, stat_html
 
 
 # mailing agent
 @print_time
 def send_report(to_mail, report_paths):
-
     # re-defining mailing list
     if test_mode:
         print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, ", ".join(report_paths)))
         if not any(s.lower() == to_mail.lower() for s in mails_to_test):
-            print 'Test_mode: report is not sent, because %s  is not specified in mails_to_test: %s' % (to_mail, mails_to_test)
+            print 'Test_mode: report is not sent, because %s  is not specified in mails_to_test: %s' % (
+            to_mail, mails_to_test)
             return
         print 'Test_mode: mail to %s  to be sent to tester %s  instead' % (to_mail, tester_email)
         recipients = [tester_email]
@@ -388,7 +424,7 @@ def send_report(to_mail, report_paths):
     if not test_mode:
         msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
     else:
-         msg['Subject'] = 'DDMops: completely lost files that may affect %s - last 7 days' % to_mail
+        msg['Subject'] = 'DDMops: completely lost files that may affect %s - last 7 days' % to_mail
     # note: from_mail will be specified in the smtplib.
     msg['From'] = from_email
     msg['To'] = ", ".join(recipients)
@@ -397,11 +433,13 @@ def send_report(to_mail, report_paths):
     # prepare tables with rse and account statistics
     stat_rse_text, stat_rse_html = prepare_stat_table(to_mail, stat_mail_rse, stat_rse_count, 'RSE', 'Lost files')
     stat_acc_text, stat_acc_html = prepare_stat_table(to_mail, stat_mail_acc, stat_acc_count, 'Account', 'Lost files')
+    stat_rse_scope_text, stat_rse_scope_html = prepare_rse_scope_table(to_mail)
 
     message_top_text = ''
     message_top_html = ''
-    if test_mode and [to_mail]  != recipients:
-        say = 'Your email ' + tester_email + ' was specified as tester email to check_lost_files script output: this mail was originally designed to %s' % [to_mail]
+    if test_mode and [to_mail] != recipients:
+        say = 'Your email ' + tester_email + ' was specified as tester email to check_lost_files script output: this mail was originally designed to %s' % [
+            to_mail]
         message_top_text += say + '\n'
         message_top_html += '<p>' + say + '</p>\n'
 
@@ -433,9 +471,9 @@ def send_report(to_mail, report_paths):
     #   msg.attach(MIMEText(str(l)))
 
     if all_inline:
-        say = 'All lost files are in this inline list:'
+        say = '\nAll your lost files are in this inline list:'
     else:
-        say = 'Lost files head (full list in the attachment):'
+        say = '\nLost files head of your lost files (full list in the attachment):'
         lines_txt.append('...')
         # situation 2019: the format of reports files are different, but contains 4 words in a row for rse/account repot and 8 for gdb
         lines.append('<tr>' + '<td>...</td>' * 4 + '</tr>')
@@ -446,8 +484,8 @@ def send_report(to_mail, report_paths):
     lf_table_text = lf_table_title_text + ''.join(lines_txt)
     lf_table_html = lf_table_title_html + '<table cellspacing="0" cellpadding="1" border="1">\n' + ''.join(
         lines) + '</table>'
-    msg_alt.attach(MIMEText(message_top_text + stat_rse_text + stat_acc_text + lf_table_text, 'plain'))
-    msg_alt.attach(MIMEText(header + message_top_html + stat_rse_html + stat_acc_html + lf_table_html + footer, 'html'))
+    msg_alt.attach(MIMEText(message_top_text + stat_rse_text + stat_acc_text + stat_rse_scope_text + lf_table_text, 'plain'))
+    msg_alt.attach(MIMEText(header + message_top_html + stat_rse_html + stat_acc_html  + stat_rse_scope_html + lf_table_html + footer, 'html'))
     msg.attach(msg_alt)
 
     # attachments
@@ -817,7 +855,7 @@ def main():
             flog.write('\n')
 
     for m in mail_rep.keys():
-         send_report(m, mail_rep[m])
+        send_report(m, mail_rep[m])
 
     # clean tmp
     cmd = 'rm ' + tmpdata_path
