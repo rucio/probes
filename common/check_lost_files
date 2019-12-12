@@ -37,7 +37,8 @@ users = True
 groups = True
 gdp = True
 
-test_mode = True
+test_mode = False
+test_mode_send_real_emails = False # True with CAUTION: send e-mails to REAL USERS in test mode (demonstration pre-release mode)
 test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
 test_mode_print_time = True # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
@@ -53,7 +54,8 @@ ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
 # from_email = 'Alexander.Bogdanchikov@cern.ch'
 
 # in test_mode specify in mails_to_test list the emails addresses which lost_files correspondence you want to check
-# The mail  which supposed to be sent to this addresses will be sent to tester_email instead. The full list of emails  can be found in the script log
+# The mail  which supposed to be sent to this addresses will be sent to tester_email instead.
+# The full list of emails  can be found in the script log
 mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
 # mails_to_test = ['atlas-adc-panda-support@cern.ch', 'atlas-adc-dpa@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
 # mails_to_test = ['atlas-adc-ddm-support@cern.ch', 'atlas-adc-dpa@cern.ch']
@@ -332,6 +334,11 @@ def report_collector(rse, account, session):
     return mails_reports
 
 
+
+# the res_scope statistics is the same for all admins
+cache_rse_scope_text = ''
+cache_rse_scope_html = ''
+
 @print_time
 def prepare_rse_scope_table(to_mail):
     """
@@ -342,9 +349,12 @@ def prepare_rse_scope_table(to_mail):
     """
     if to_mail not in ddm_admin_mails and to_mail not in gdp_emails and to_mail not in always_report_email:
         return '', ''
-    df = pd.read_csv(tmpdata_path, sep=" |\t",
-                     names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
-    df1 = df[['rse', 'scope']]
+    global cache_rse_scope_text, cache_rse_scope_html
+    if cache_rse_scope_text != '':
+        return cache_rse_scope_text, cache_rse_scope_html
+    df = pd.read_csv(tmpdata_path, sep=" |\t", names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
+    df0 = df.drop_duplicates(subset=['scope', 'file_name', 'rse']) # files with same "scope-file-rse" but different datasets are counted as one file
+    df1 = df0[['rse', 'scope']]
     df1.loc[df1['scope'].str.startswith('user.'), 'scope'] = 'user.*'
     sr = df1.groupby(['rse', 'scope']).size().sort_values(ascending=False)
     if len(sr) == 0:
@@ -358,15 +368,16 @@ def prepare_rse_scope_table(to_mail):
         stat_text += "%s  %s %s\n" % (rse, scope, count)
         stat_html += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % (rse, scope, count)
     stat_html = '<p>Total summary of ALL lost files:</p><table cellspacing="0" cellpadding="1" border="1">\n' + stat_html + '</table>\n'
-    if test_mode:
-        print "test mode: prepare_rse_scope_table() prepared to %s: stat_text=%s, stat_html=%s\n" % (to_mail, stat_text, stat_html)
+    #if test_mode:
+    #    print "test mode: prepare_rse_scope_table() prepared to %s: stat_text=%s, stat_html=%s\n" % (to_mail, stat_text, stat_html)
+    cache_rse_scope_text, cache_rse_scope_html = stat_text, stat_html # remember in the cache for use in next calls
     return stat_text, stat_html
 
 
 def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
     """
-    prepare  a sting with the table of reverse sorted simple stats table in text and html formats
-    subj = rse, subj = account
+    prepare  a strings (txt,html) with statistics table of reverse sorted
+    subj = rse | account
     :param to_mail:  compose the stat table to to_mail
     :param stat_mail: { mail1: [subj1, ...] ...}
     :param stat_count:  { subj1 : 2, subj2 : 32 ... }
@@ -389,7 +400,7 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
         if test_mode:
             print "rsec=" + str(rsec)
         tlist = sorted(rsec.items(), key=lambda el: el[1],
-                       reverse=True)  # dictionary can not be sorted, but can get a sorted tuple presentation
+                       reverse=True)  # dictionary can not be sorted, but may be used to create a sorted tuple
         if test_mode:
             print "tlist=" + str(tlist)
         stat_html += "<tr><td>%s</td><td>%s</td></tr>\n" % (col1, col2)
@@ -411,7 +422,7 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
 @print_time
 def send_report(to_mail, report_paths):
     # re-defining mailing list
-    if test_mode:
+    if test_mode and not test_mode_send_real_emails:
         print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, ", ".join(report_paths)))
         if not any(s.lower() == to_mail.lower() for s in mails_to_test):
             print 'Test_mode: report is not sent, because %s  is not specified in mails_to_test: %s' % (
@@ -423,7 +434,7 @@ def send_report(to_mail, report_paths):
         recipients = [to_mail]
 
     msg = MIMEMultipart('mixed')
-    if not test_mode:
+    if not test_mode or test_mode_send_real_emails :
         msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
     else:
         msg['Subject'] = 'DDMops: completely lost files that may affect %s - last 7 days' % to_mail
@@ -551,7 +562,7 @@ def report_by_account(session):
     data_per_account = {}
     accs = []
 
-    processed_files = [] # do not report to one account to scope:file loss in different RSEs
+    processed_files = [] # do not report to one account about scope:file loss in different RSEs
     # loop over lost files from get_bad_files()
     for line in fi.readlines():
         line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
@@ -766,6 +777,12 @@ def get_bad_files_from_dump(session):
         data = l.split('\t')
         if len(data) < 7:  # some extra check from older code, candidate to removal, it had sense when the '' may happen
             flog.write('WARNING: line %i in dump does not contain full info \n' % line_counter)
+            continue
+
+        # assume here, that dump is not filtered enough
+        if data[3].startswith('panda.'):
+            continue
+        if '_sub' in data[3]:
             continue
 
         # check the full file id (with RSE) uniqueness
