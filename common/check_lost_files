@@ -42,6 +42,7 @@ test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use
 test_mode_print_time = True # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
+disable_dump_usage = False # True # do not try to receive the ready dump of lost files via https
 create_dirs = True
 
 always_report_email = 'tomas.javurek@cern.ch'
@@ -53,10 +54,10 @@ ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
 
 # in test_mode specify in mails_to_test list the emails addresses which lost_files correspondence you want to check
 # The mail  which supposed to be sent to this addresses will be sent to tester_email instead. The full list of emails  can be found in the script log
-# mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
+mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
 # mails_to_test = ['atlas-adc-panda-support@cern.ch', 'atlas-adc-dpa@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
 # mails_to_test = ['atlas-adc-ddm-support@cern.ch', 'atlas-adc-dpa@cern.ch']
-mails_to_test = ['atlas-adc-ddm-support@cern.ch']
+#mails_to_test = ['atlas-adc-ddm-support@cern.ch']
 
 # tester_email = 'tomas.javurek@cern.ch'
 #tester_email = 'david.cameron@cern.ch'
@@ -334,7 +335,8 @@ def report_collector(rse, account, session):
 @print_time
 def prepare_rse_scope_table(to_mail):
     """
-    prepare strings with the table statistics
+    prepare strings with full rse_scope statistics table
+    :param to_mail: recepient addr (string) - just to check if it is email  where the WHOLE rse-scope statistics needs to be sent
     :return:
     text_table_string, html_table_string
     """
@@ -443,7 +445,7 @@ def send_report(to_mail, report_paths):
         message_top_text += say + '\n'
         message_top_html += '<p>' + say + '</p>\n'
 
-    say = 'Please check the attached list of files that have been lost and can not be recovered. These files may affect you. In case of questions contact DDMops.'
+    say = 'Please check the attached list of files that have been lost last week (Mon-Sun) and can not be recovered. These files may affect you. In case of questions contact DDMops.'
     message_top_text += say + '\n'
     message_top_html += '<p>' + say + '</p>\n'
 
@@ -549,6 +551,7 @@ def report_by_account(session):
     data_per_account = {}
     accs = []
 
+    processed_files = [] # do not report to one account to scope:file loss in different RSEs
     # loop over lost files from get_bad_files()
     for line in fi.readlines():
         line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
@@ -558,8 +561,14 @@ def report_by_account(session):
         rse_name = line.split(' ')[4]
         account = line.split(' ')[5]
         updated_at = line.split(' ')[6]
-        accounts = []
 
+        # do not put into user reports duplications of the same scope:file_name  (from different datasets/rses)
+        f_did = scope + ':' + data_name
+        if f_did in processed_files:
+            continue
+        processed_files.append(f_did)
+
+        accounts = []
         # find owners of rule, they are contacted as well
         if test_mode:
             print "DEBUG: get rule owners"
@@ -667,17 +676,17 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
         return True
     f = open(outfile, 'w')
     try:
-        if orig_query:
+        if orig_query:  # origin query till the end of 2019, for backward compatibility
             query = ''' select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b
     where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name '''
         else:
-            query0 = (  # origin, just reformatted in multiple lines
+            query0 = (  # origin + reformatted in multiple lines + former python-code selection is included in request = it works slower then original (because of increased "where" clause without index)
                 "select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
                 " where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name "
                 " and  b.name not like 'panda.%' and b.name not like '%_sub%' "
             )
-            query1 = (  # nested select to remove unwanted lines
-                "select * from"
+            query1 = (  # improved query0 -- nested select instead of increased  where clause
+                "select * from" # It seems to be the optimal query, the next queries2+ does not give time benefit (~same or slower)
                 " ( select a.scope as scope, a.name as name, b.scope as bscope,  b.name as dataset, atlas_rucio.id2rse(a.rse_id) as rse, a.account as account, a.updated_at as upd"
                 " from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
                 " where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
@@ -699,38 +708,32 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
                 " where b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
                 " where T.dataset not like 'panda.%' and T.dataset not like '%_sub%' "
             )
-            query = query1  # origin query0 will work badly now
+            query1_with_fixed_interval = (  # query1 + fixed time interval: last week from Monday
+                "select * from"
+                " ( select a.scope as scope, a.name as name, b.scope as bscope,  b.name as dataset, atlas_rucio.id2rse(a.rse_id) as rse, a.account as account, a.updated_at as upd"
+                " from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
+                " where a.state='L' and where YEARWEEK(date(a.updated_at), 5) = YEARWEEK( CURDATE() - INTERVAL 1 WEEK, 5)"
+                " and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
+                " where T.dataset not like 'panda.%' and T.dataset not like '%_sub%' "
+            )
 
-        print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
+            query = query1_with_fixed_interval  #
+
+        if test_mode:
+            print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
         result = session.execute(query)
-        print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
+        if test_mode:
+            print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
 
-        processed_files = []
         processed_files_full = []
         for row in result:
-            if row[3].startswith('panda.'):
-                continue
-            if '_sub' in row[3]:
-                continue
-
-            f_did_full = row[0] + ':' + row[1] + ':' + row[4]
+            # no big sense in duplication check, just check duplications
+            # scope fname dataset  rse
+            f_did_full = row[0] + ':' + row[1] + ':' + row[3] + ':' + row[4]
             if f_did_full in processed_files_full:
-                unique_file = False
-            else:
-                unique_file = True
-                processed_files_full.append(f_did_full)
-
-            f_did = row[0] + ':' + row[1]
-            if f_did in processed_files:
-                print 'double counted:', f_did
-                if unique_file:
-                    print "The bug! The file is unique: " + f_did_full
+                print "The bug? The file report is duplicated in rucio select results: " + f_did_full
                 continue
-            else:
-                processed_files.append(f_did)
-            # for col in row:
-            #    f.write('%s ' % col)
-            # f.write('\n')
+            processed_files_full.append(f_did_full)
 
             # shorter and does not add a trailing space (not nice + dump results are stored without the trailing spaces)
             # str() conversion is necessary, as row[6] has datetime type
@@ -758,38 +761,25 @@ def get_bad_files_from_dump(session):
     line_counter = 0
     processed_files = []
     processed_files_full = []
-    for l in dump7.text.split('\n'):
+    for l in dump7.text.splitlines():  # former split('\n'): split 'abc\n' to ['abc' ,'']
         line_counter += 1
         data = l.split('\t')
-        if len(data) < 7:
+        if len(data) < 7:  # some extra check from older code, candidate to removal, it had sense when the '' may happen
             flog.write('WARNING: line %i in dump does not contain full info \n' % line_counter)
-            continue
-        if data[3].startswith('panda.'):
-            continue
-        if '_sub' in data[3]:
             continue
 
         # check the full file id (with RSE) uniqueness
-        f_did_full = data[0] + ':' + data[1] + ':' + data[4]
+        f_did_full = data[0] + ':' + data[1] + ':' + data[3] + ':' + data[4]
         if f_did_full in processed_files_full:
-            unique_file = False
-        else:
-            unique_file = True
-            processed_files_full.append(f_did_full)
-
-        f_did = data[0] + ':' + data[1]
-        if f_did in processed_files:
-            print 'double counted:', f_did
-            if unique_file:
-                print "The file is unique: " + f_did_full
+            print "The bug? The file report is duplicated in results from dump: " + f_did_full
             continue
-        else:
-            processed_files.append(f_did)
+        processed_files_full.append(f_did_full)
+
         updated_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(
             float(data[6])))  # agb: time was added to date, for compatabiliity with tmp_file format from rucio request
         f.write('%s %s %s %s %s %s %s\n' % (data[0], data[1], data[2], data[3], data[4], data[5], updated_at))
-    flog.write('INFO: dump contains %i lines\n' % line_counter)
 
+    flog.write('INFO: dump contains %i lines\n' % line_counter)
     return True
 
 
@@ -807,9 +797,13 @@ def main():
 
     mail_rep = {}
     # get input
-    get_input = get_bad_files_from_dump(session)
-    if not get_input:
-        print 'WARNING: the dump is not accessible'
+    if not disable_dump_usage:
+        get_input = get_bad_files_from_dump(session)
+    if disable_dump_usage or not get_input:
+        if not disable_dump_usage:
+            print 'WARNING: the dump is not accessible'
+        else:
+            print 'dump usage is disabled'
         get_input = get_bad_files(session)
         if not get_input:
             sys.exit(CRITICAL)
