@@ -9,6 +9,7 @@
  Authors:
  - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
  - Mario Lassnig, <mario.lassnig@cern.ch>, 2015
+ - Eric Vaandering, <ewv@fnal.gov>, 2019
 """
 
 import os
@@ -18,16 +19,21 @@ import urllib3
 
 import requests
 
-from rucio.common.config import config_get
+from rucio.common.config import config_get, config_get_bool
 from rucio.core import monitor
 
 from rucio.core.distance import update_distances
 
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 urllib3.disable_warnings()
+
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
 
 if __name__ == "__main__":
 
@@ -35,7 +41,11 @@ if __name__ == "__main__":
     try:
         VO = sys.argv[1]
     except IndexError as error:
-        VO = 'atlas'
+        try:
+            VO = config_get('nagios', 'fts_vo')
+        except Exception as error:
+            VO = 'atlas'
+
     try:
         CHECK_BUSY = sys.argv[2]
     except IndexError as error:
@@ -55,9 +65,17 @@ if __name__ == "__main__":
         FTSHOSTS = config_get('conveyor', 'ftsmonhosts')
     except Exception as error:
         print "Failed to get ftsmonhosts"
+        FTSHOSTS = []
         WORST_RETVALUE = WARNING
+
+    try:
+        UPDATE_DIST = config_get_bool('nagios', 'update_distances')
+    except Exception as error:
+        UPDATE_DIST = True
+
+    errmsg = ''
     for ftshost in FTSHOSTS.split(','):
-        print "=== %s ===" % (ftshost)
+        print("=== %s ===" % ftshost)
         parsed_url = urlparse(ftshost)
         scheme, hostname, port = parsed_url.scheme, parsed_url.hostname, parsed_url.port
         retvalue = CRITICAL
@@ -73,7 +91,8 @@ if __name__ == "__main__":
                     src = channel['source_se']
                     dst = channel['dest_se']
                     if (src, dst) not in se_matrix:
-                        se_matrix[(src, dst)] = {'active': 0, 'submitted': 0, 'finished': 0, 'failed': 0, 'transfer_speed': 0, 'mbps_link': 0}
+                        se_matrix[(src, dst)] = {'active': 0, 'submitted': 0, 'finished': 0, 'failed': 0,
+                                                 'transfer_speed': 0, 'mbps_link': 0}
                     for state in ['submitted', 'active', 'finished', 'failed']:
                         try:
                             se_matrix[(src, dst)][state] += channel[state]
@@ -85,7 +104,8 @@ if __name__ == "__main__":
                     except Exception:
                         pass
                     if CHECK_BUSY and 'submitted' in channel and channel['submitted'] >= busylimit:
-                        url_activities = '%s/fts3/ftsmon/config/activities/%s?source_se=%s&dest_se=%s' % (ftshost, VO, src, dst)
+                        url_activities = '%s/fts3/ftsmon/config/activities/%s?source_se=%s&dest_se=%s' % (ftshost, VO,
+                                                                                                          src, dst)
                         activities = {}
                         try:
                             s = requests.get(url_activities, verify=False, cert=(PROXY, PROXY))
@@ -93,7 +113,8 @@ if __name__ == "__main__":
                                 activities[key] = val['SUBMITTED']
                         except Exception as error:
                             pass
-                        busy_channels.append({'src': src, 'dst': dst, 'submitted': channel['submitted'], 'activities': activities})
+                        busy_channels.append({'src': src, 'dst': dst, 'submitted': channel['submitted'],
+                                              'activities': activities})
                 summary = res['summary']
                 hostname = hostname.replace('.', '_')
                 print '%s : Submitted : %s' % (hostname, summary['submitted'])
@@ -101,35 +122,46 @@ if __name__ == "__main__":
                 print '%s : Staging : %s' % (hostname, summary['staging'])
                 print '%s : Started : %s' % (hostname, summary['started'])
                 if busy_channels != []:
-                    print 'Busy channels (>%s submitted):' % (busylimit)
+                    print('Busy channels (>%s submitted):' % busylimit)
                     for bc in busy_channels:
                         activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
-                        print '  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'], str(activities_str))
-                monitor.record_gauge(stat='fts3.%s.submitted' % (hostname), value=(summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
+                        print '  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
+                                                                       str(activities_str))
+                monitor.record_gauge(stat='fts3.%s.submitted' % hostname,
+                                     value=(summary['submitted'] + summary['active']
+                                            + summary['staging'] + summary['started']))
                 retvalue = OK
                 break
             except Exception as error:
                 retvalue = CRITICAL
                 if result and result.status_code:
-                    errmsg = 'Error when trying to get info from %s : HTTP status code %s. [%s]' % (ftshost, str(result.status_code), str(error))
+                    errmsg = 'Error when trying to get info from %s : HTTP status code %s. [%s]' % (
+                        ftshost, str(result.status_code), str(error))
                 else:
                     errmsg = 'Error when trying to get info from %s. %s' % (ftshost, str(error))
         if retvalue == CRITICAL:
-            print "All attempts failed. %s" % (errmsg)
+            print("All attempts failed. %s" % errmsg)
         WORST_RETVALUE = max(retvalue, WORST_RETVALUE)
+
+    if not UPDATE_DIST:
+        sys.exit(WORST_RETVALUE)
+
     se_map = {}
     try:
         session = get_session()
-        for sename, rse_id in session.execute("select scheme||'://'||hostname, rawtohex(rse_id) from atlas_rucio.rse_protocols").fetchall():
+
+        sql = "select scheme||'://'||hostname, rawtohex(rse_id) from {schema}rse_protocols".format(schema=schema)
+        for sename, rse_id in session.execute(sql).fetchall():
             if sename not in se_map:
                 se_map[sename] = []
             se_map[sename].append(rse_id)
     except:
         sys.exit(WORST_RETVALUE)
+
     QUERY = """
-            update atlas_rucio.distances set active=null, submitted=null, finished=null, failed=null, transfer_speed=null
+            update {schema}distances set active=null, submitted=null, finished=null, failed=null, transfer_speed=null
             where not (active is null and submitted is null and finished is null and failed is null and transfer_speed is null)
-            """
+            """.format(schema=schema)
     try:
         session = get_session()
         session.execute(QUERY)
@@ -141,5 +173,6 @@ if __name__ == "__main__":
         for source_rse_id in se_map[source_rse]:
             for dest_rse_id in se_map[dest_rse]:
                 # print source_rse_id, dest_rse_id, se_matrix[(source_rse, dest_rse)]
-                update_distances(src_rse_id=source_rse_id, dest_rse_id=dest_rse_id, parameters=se_matrix[(source_rse, dest_rse)], session=None)
+                update_distances(src_rse_id=source_rse_id, dest_rse_id=dest_rse_id,
+                                 parameters=se_matrix[(source_rse, dest_rse)], session=None)
     sys.exit(WORST_RETVALUE)
