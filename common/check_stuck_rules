@@ -7,27 +7,37 @@
 #
 # Authors:
 # - Martin Barisits, <martin.barisits@cern.ch>, 2014
+# - Eric Vaandering, <ewv@fnal.gov>, 2019
 
-'''
+"""
 Probe to check the backlog of stuck rules.
-'''
+"""
+
 import sys
 import traceback
 
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
 if __name__ == "__main__":
     try:
         session = get_session()
-
-        result = session.execute('SELECT COUNT(1) FROM ATLAS_RUCIO.RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)').fetchone()[0]
+        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)'.format(
+            schema=schema)
+        result = session.execute(sql).fetchone()[0]
         monitor.record_gauge(stat='judge.stuck_rules_without_missing_source_replica', value=result)
 
-        result = session.execute('SELECT COUNT(1) FROM ATLAS_RUCIO.RULES where state=\'S\' and error =\'MissingSourceReplica\'').fetchone()[0]
+        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and error =\'MissingSourceReplica\''.format(
+            schema=schema)
+        result = session.execute(sql).fetchone()[0]
         monitor.record_gauge(stat='judge.stuck_rules_with_missing_source_replica', value=result)
     except:
         print traceback.format_exc()

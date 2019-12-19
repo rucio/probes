@@ -8,10 +8,12 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014
+# - Eric Vaandering, <ewv@fnal.gov>, 2019
 
-'''
+
+"""
 Probe to check Oracle.
-'''
+"""
 
 import sys
 
@@ -27,11 +29,21 @@ if __name__ == "__main__":
 
     try:
         sql_connection = config_get('database', 'default')
-        user = config_get('database', 'powuseraccount')
-        password = config_get('database', 'powuserpassword')
+        user = config_get('database', 'powuseraccount', raise_exception=False, default=None)
+        password = config_get('database', 'powuserpassword', raise_exception=False, default=None)
     except:
         print 'Cannot get DB parameters'
         sys.exit(CRITICAL)
+
+    if not (user and password):
+        try:
+            upp = sql_connection.split('@')[0]  # scheme://user:password
+            up = upp.split('://')[1]            # user:password
+            user, password = up.split(':')
+        except:
+            print 'Cannot guess DB parameters'
+            sys.exit(CRITICAL)
+
     dsn = sql_connection.split('@')[1]
     connection = cx_Oracle.connect(user, password, dsn)
     cursor = connection.cursor()
