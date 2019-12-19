@@ -38,7 +38,7 @@ if __name__ == "__main__":
         registry = CollectorRegistry()
         session = get_session()
         updated_dids = 'select count(1) from {schema}updated_dids'.format(schema=schema)
-        result = session.execute().fetchone()[0]
+        result = session.execute(updated_dids).fetchone()[0]
         monitor.record_gauge(stat='judge.updated_dids', value=result)
         Gauge('judge_updated_dids', '', registry=registry).set(result)
 

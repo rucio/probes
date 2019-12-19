@@ -42,8 +42,8 @@ if __name__ == "__main__":
         monitor.record_gauge(stat='judge.waiting_dids', value=result)
 
         registry = CollectorRegistry()
-        g = Gauge('judge_waiting_dids', '', registry=registry)
-        g.set(result)
+        Gauge('judge_waiting_dids', '', registry=registry).set(result)
+
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
                 try:

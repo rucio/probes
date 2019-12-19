@@ -50,14 +50,12 @@ if __name__ == "__main__":
         unlocked_sql = 'select  /*+ index_ffs(replicas REPLICAS_TOMBSTONE_IDX) */  count(1) from {schema}replicas where tombstone is not null'.format(schema=schema)
         result = session.execute(unlocked_sql).fetchone()[0]
         monitor.record_gauge(stat='reaper.unlocked_replicas', value=result)
-        g1 = Gauge('reaper_unlocked_replicas', '', registry=registry)
-        g1.set(result)
+        Gauge('reaper_unlocked_replicas', '', registry=registry).set(result)
         print result
         expired_sql = 'select  /*+ index_ffs(replicas REPLICAS_TOMBSTONE_IDX) */  count(1) from {schema}replicas where tombstone is not null and tombstone < sysdate - 2/24'.format(schema=schema)
         result = session.execute(expired_sql).fetchone()[0]
         monitor.record_gauge(stat='reaper.expired_replicas', value=result)
-        g2 = Gauge('reaper_expired_replicas', '', registry=registry)
-        g2.set(result)
+        Gauge('reaper_expired_replicas', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
