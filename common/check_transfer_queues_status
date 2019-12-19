@@ -9,6 +9,7 @@
 # - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2015
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014
 # - Wen Guan, <wen.guan@cern.ch>, 2015
+# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 
 """
 Probe to check the queues of the transfer service
@@ -16,6 +17,9 @@ Probe to check the queues of the transfer service
 
 import sys
 
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
+from rucio.common.config import config_get
 from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
 
@@ -34,7 +38,13 @@ CASE
  WHEN state = 'F' THEN 'queues.requests.failed.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  WHEN state = 'D' THEN 'queues.requests.done.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  WHEN state = 'L' THEN 'queues.requests.lost.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
- WHEN state = 'W' THEN 'queues.requests.waiting.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'null_fts_host')
+ WHEN state = 'W' THEN 'queues.requests.waiting.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'M' THEN 'queues.requests.mismatchscheme.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'G' THEN 'queues.requests.submitting.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'N' THEN 'queues.requests.nosources.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'O' THEN 'queues.requests.onlytapesources.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'A' THEN 'queues.requests.submissionfailed.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'U' THEN 'queues.requests.suspend.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  ELSE state
 END state_desc,
 num_rows
@@ -45,12 +55,29 @@ FROM {schema}requests
 GROUP BY state, activity, external_host
 )""".format(schema=schema)
 
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
+
 if __name__ == "__main__":
     try:
+        registry = CollectorRegistry()
+        g = Gauge('conveyor_queues_requests', '', labelnames=('state', 'activity', 'external_host'), registry=registry)
         session = get_session()
         for k in session.execute(active_queue).fetchall():
             print k[0], k[1],
             monitor.record_gauge(stat=k[0], value=k[1])
+            items = k[0].split('.')
+            state = items[2]
+            activity = items[3]
+            external_host = items[4]
+            g.labels(**{'activity': activity, 'state': state, 'external_host': external_host}).set(k[1])
+        if len(PROM_SERVERS):
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_transfer_queues_status', registry=registry)
+                except:
+                    continue
     except:
         sys.exit(UNKNOWN)
     sys.exit(OK)
