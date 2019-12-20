@@ -7,6 +7,7 @@
 #
 # Authors:
 # - Ralph Vigne <ralph.vigne@cern.ch>, 2014
+# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 
 
 import argparse
@@ -16,6 +17,7 @@ import logging
 import logging.handlers
 import sys
 
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from pystatsd import Client
 from sys import stdout
 
@@ -97,7 +99,6 @@ def monitor_haproxy(socket_name):
 
 def backend_graphite(url, stats, prefix):
     process_num = stats['Process_num']
-    del(stats['Process_num'])
     server_name = socket.getfqdn().split('.')[0]
     prefix = '%s.%s.%s' % (prefix, server_name, int(process_num))
     logger.debug('Reporting to prefix: %s' % prefix)
@@ -109,6 +110,8 @@ def backend_graphite(url, stats, prefix):
         raise
 
     for s in stats:
+        if s == 'Process_num':
+            continue
         try:
             pystatsd_client.gauge(s, float(stats[s]))
             logger.debug('%s.%s => %s' % (prefix, s, float(stats[s])))
@@ -116,9 +119,44 @@ def backend_graphite(url, stats, prefix):
             logger.error('Failed reporting %s (%s): %s' % (s, stats[s], e))
 
 
+def backend_prometheus(urls, stats, prefix):
+    registry = CollectorRegistry()
+    process_num = stats['Process_num']
+    del(stats['Process_num'])
+    server_name = socket.getfqdn().split('.')[0]
+
+    labelnames = ('name', 'endpoint', 'process_num', 'server_name')
+    gauges = {}
+    for s in stats:
+        stat = s
+        items = s.split('.')
+
+        name = 'none'
+        endpoint = 'none'
+        if len(items) > 2:
+            s = items[2]
+            name = items[0]
+            endpoint = items[1]
+        if len(items) == 4:
+            s = "_".join(items[2:4])
+
+        if s not in gauges:
+            gauges[s] = Gauge("_".join((prefix.replace(".", "_"), s)), '', labelnames=labelnames, registry=registry)
+
+        gauges[s].labels(**{'name': name, 'endpoint': endpoint, 'process_num': process_num, 'server_name': server_name}).set(float(stats[stat]))
+
+    for url in urls:
+        try:
+            logging.debug("try to push to %s" % url)
+            push_to_gateway(url.strip(), job='monitor_haproxy_' + server_name, registry=registry)
+        except:
+            continue
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--backend', metavar='B', type=str, nargs=1, help=' Graphite server URL[:port][::scope] to which the script will report to. E.g. --backend rucio-graphite-int.cern.ch:8025/listen/now::rucio.loadbalancer')
+    parser.add_argument('--prometheus_servers', metavar='P', type=str, nargs='+', help='a list of prometheus pushgateway servers')
     parser.add_argument('--sockets', metavar='S', type=str, nargs='+', help='a list of socket files e.g. /var/run/haproxy_admin_process_no_1.sock')
     parser.add_argument('--verbose', help='makes it chatty', action="store_true")
 
@@ -135,11 +173,21 @@ if __name__ == "__main__":
         logger.critical('Can not unpack backend information: %s' % args['backend'][0])
         sys.exit(1)
 
+    prometheus_servers = None
+    if args['prometheus_servers']:
+        try:
+            prometheus_servers = args['prometheus_servers'][0].split(',')
+        except ValueError:
+            logger.critical('Can not unpack prometheus server information: %s' % args['prometheus_servers'][0])
+            sys.exit(1)
+
     logger.info('Cheking sockets: %s' % args['sockets'])
     for socket_name in args['sockets']:
         try:
             data = monitor_haproxy(socket_name)
             backend_graphite(url, data, prefix)
+            if prometheus_servers:
+                backend_prometheus(prometheus_servers, data, prefix)
         except Exception as e:
             logger.error(e)
             logger.error(traceback.format_exc(e))
