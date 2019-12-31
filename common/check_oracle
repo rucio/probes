@@ -27,10 +27,18 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 if __name__ == "__main__":
 
+    normal_user = None
+
     try:
         sql_connection = config_get('database', 'default')
         user = config_get('database', 'powuseraccount', raise_exception=False, default=None)
         password = config_get('database', 'powuserpassword', raise_exception=False, default=None)
+        try:
+            upp = sql_connection.split('@')[0]  # scheme://user:password
+            up = upp.split('://')[1]            # user:password
+            normal_user, _dummy = up.split(':')
+        except:
+            print 'Cannot guess Rucio DB user'
     except:
         print 'Cannot get DB parameters'
         sys.exit(CRITICAL)
@@ -40,6 +48,7 @@ if __name__ == "__main__":
             upp = sql_connection.split('@')[0]  # scheme://user:password
             up = upp.split('://')[1]            # user:password
             user, password = up.split(':')
+            normal_user = user
         except:
             print 'Cannot guess DB parameters'
             sys.exit(CRITICAL)
@@ -64,6 +73,14 @@ ORDER BY inst_id, mname.metric_name, mname.metric_unit'''
             m = 'oracle.%s' % metric.replace(' ', '_')
             print m, value, ' ',
             monitor.record_gauge(stat=m, value=value)
+
+        if normal_user:
+            query = "select count(*) from gv$session  where username = '%s'" % normal_user.upper()
+            cursor.execute(query)
+            conn_count = cursor.fetchone()[0]
+            print ('oracle.connections', conn_count, ' ')
+            monitor.record_gauge(stat='oracle.connections', value=conn_count)
+
     except:
         sys.exit(UNKNOWN)
     finally:
