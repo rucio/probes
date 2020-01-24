@@ -32,7 +32,7 @@ def translate_data(cric_users, cric_groups):
         for group in userdata['groups']:
             if group['name'] in ['RucioServiceAccounts', 'RucioUserAccounts']:
                 account = ({
-                    'account': InternalAccount(userdata['username'][:25]),  # FIXME: Shouldn't split 25 first chars of CRIC username.
+                    'account': InternalAccount(userdata['username'][:25]),
                     'email': userdata['email'],
                     'account_type': AccountType.SERVICE if group['name'] == 'RucioServiceAccounts' else AccountType.USER,
                     'status': AccountStatus.ACTIVE if userdata['is_active'] else AccountStatus.SUSPENDED,
@@ -45,6 +45,8 @@ def translate_data(cric_users, cric_groups):
                             'type': 'X509',  # IdentityType.X509,
                             'email': profile['email']
                         })
+                    if profile['class'] == 'SSOProfile':
+                        account['account '] = InternalAccount(profile['login'])
                 ret['accounts'].append(account)
 
     for group, grpdata in cric_groups.items():
