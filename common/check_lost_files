@@ -7,7 +7,7 @@
 #
 # Authors:
 # - Tomas Javurek, Cedric Serfon, 2015
-# - Alexander Bogdanchikov, 2019
+# - Alexander Bogdanchikov, 2019-2020
 
 import os
 import sys
@@ -19,6 +19,7 @@ from email.mime.text import MIMEText
 from email.MIMEMultipart import MIMEMultipart
 from email.MIMEBase import MIMEBase
 from email import Encoders
+import mimetypes  # to guess mimetype
 # from rucio.common.config import config_get
 from datetime import datetime
 from datetime import date
@@ -38,13 +39,21 @@ groups = True
 gdp = True
 
 test_mode = False
-test_mode_send_real_emails = False # True with CAUTION: send e-mails to REAL USERS in test mode (demonstration pre-release mode)
+test_mode_send_real_emails = False  # True with CAUTION: send e-mails to REAL USERS in test mode (demonstration pre-release mode)
 test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
-test_mode_print_time = True # count and print time spent in methods with @print_time decoration
+test_mode_print_time = True  # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
-force_rucio_select = False  # set it to True to force selection from rucio, even if rucio-hadoop request was successful
-disable_dump_usage = False # True # do not try to receive the ready dump of lost files via https
+force_rucio_select = False  # set it to True to force selection from rucio, without cache or dump
 create_dirs = True
+remove_tmp_file = not test_mode  # remove tmp file (with full dump) on exit
+read_from_cache = not test_mode
+check_duplicates = False  # check duplicates is more accurate but may be to heavy for large datalosses.
+
+zip_cmd = "gzip --best --force"  # may be used bzip2 (~ 25% better)
+unzip_cmd = "gzip -d --force"  # may be used in test_mode to unzip tmpfile
+max_unzipped_attachment_size = 100 * 1024
+zip_tmp_file = True  # works only if remove_tmp_file is False
+max_unzipped_tmp_file_size = 1 * 1024 * 1024
 
 always_report_email = 'tomas.javurek@cern.ch'
 gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
@@ -53,18 +62,17 @@ ddm_admin_accounts = ['ddmadmin', 'root']
 ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
 # from_email = 'Alexander.Bogdanchikov@cern.ch'
 
-# in test_mode specify in mails_to_test list the emails addresses which lost_files correspondence you want to check
-# The mail  which supposed to be sent to this addresses will be sent to tester_email instead.
-# The full list of emails  can be found in the script log
-mails_to_test = [  'atlas-adc-panda-support@cern.ch', 'tomas.javurek@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
-# mails_to_test = ['atlas-adc-panda-support@cern.ch', 'atlas-adc-dpa@cern.ch', 'alberto.annovi@lnf.infn.it', 'Alessandro.de.Salvo@cern.ch', 'ian.connelly@cern.ch', 'atlas-adc-ddm-support@cern.ch']
-# mails_to_test = ['atlas-adc-ddm-support@cern.ch', 'atlas-adc-dpa@cern.ch']
-#mails_to_test = ['atlas-adc-ddm-support@cern.ch']
+# Specify the mails_to_test list of addresses of the users whose correspondence you want to check in test_mode.
+# The mail  which supposed to be sent to these addresses will be sent to tester_emails instead.
+# The full list of users emails can be found in the script log
+mails_to_test = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch', 'atlas-adc-panda-support@cern.ch',
+                 'atlas-adc-ddm-support@cern.ch']
 
-# tester_email = 'tomas.javurek@cern.ch'
-#tester_email = 'david.cameron@cern.ch'
-#tester_email = 'dimitrios.christidis@cern.ch'
-tester_email = 'Alexander.Bogdanchikov@cern.ch'
+# tester_emails = ['Alexander.Bogdanchikov@cern.ch', david.cameron@cern.ch','dimitrios.christidis@cern.ch']
+# tester_emails = ['Alexander.Bogdanchikov@cern.ch', 'atlas-adc-ddm-support@cern.ch']
+# tester_emails = ['Alexander.Bogdanchikov@cern.ch', 'atlas-adc-dpa@cern.ch']
+tester_emails = ['Alexander.Bogdanchikov@cern.ch']
+
 # run script on working_days only
 working_days = ['Wednesday']
 
@@ -73,8 +81,8 @@ timestamp_long = datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
 
 # log_dir = '/var/log/rucio/lost_files/logs'
 if not test_mode:
-    base_dir = '/var/log/rucio/lost_files'
-else:
+    base_dir = '/var/log/rucio/lost_files_new'
+else:  # may be switched to /tmp to work without kerberos ticket
     base_dir = '/afs/cern.ch/user/a/agbogdan/lost_files'  # + "-" + timestamp_long
 
 log_dir = base_dir + '/logs'
@@ -273,16 +281,24 @@ def find_mails_groups(rse, session):
     return mails
 
 
+# cache to avoid the same requests repetition
+rule_owners_dict = {}
+
+
 # find account for rule on given did
-@print_time
+# get_rule_owners is called for every entry -- it is too noisy if the file is big
+# @print_time
 def get_rule_owners(scope, name, session):
+    rule_owners_key = scope + ' ' + name
+    if rule_owners_key in rule_owners_dict:
+        return rule_owners_dict[rule_owners_key]
     rule_owners = []
     try:
         query = "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
-        if test_mode:
+        if False and test_mode:
             print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
         result = session.execute(query)
-        if test_mode:
+        if False and test_mode:
             print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
         for row in result:
             for col in row:
@@ -292,11 +308,28 @@ def get_rule_owners(scope, name, session):
         flog.write('get_rule_owners:')
         flog.write(str(e) + '\n')
 
-    if test_mode:
-        print  'DEBUG: ', scope, name
-        print  'DEBUG: rule owners', rule_owners
+    if False and test_mode:
+        print "DEBUG: rules owner [%s] = %s" % (rule_owners_key, rule_owners)
 
+    rule_owners_dict[rule_owners_key] = rule_owners  # remember in the cache
     return rule_owners
+
+
+def path_to_file(file_name):
+    """
+    find the file_name with extension if file_name is not exist
+    :param file_name:
+    :return:
+    """
+    if os.path.isfile(file_name):
+        return file_name
+
+    possible_extensions = {'gz', 'bz2'}
+    for ext in possible_extensions:
+        file_name_ext = file_name + '.' + ext
+        if os.path.isfile(file_name_ext):
+            return file_name_ext
+    return ''
 
 
 # collects reports for given email
@@ -309,14 +342,14 @@ def report_collector(rse, account, session):
     report_path = ''
     if groups and rse != '':
         mail_list = find_mails_groups(rse, session)
-        report_path = reports_dir + '/' + 'report_' + rse
+        report_path = reports_dir + '/' + 'report_' + rse + '.txt'
     if users and account != '' and account != 'gdp':
         mail_list = find_mails_users(account, session)
-        report_path = reports_dir + '/' + 'report_' + account
+        report_path = reports_dir + '/' + 'report_' + account + '.txt'
     if gdp and account == 'gdp':
         mail_list = find_mails_gdp()
-        report_path = reports_dir + '/' + 'report_' + account
-    if mail_list == [] or report_path == '' or report_path == 'report_':
+        report_path = reports_dir + '/' + 'report_' + account + '.txt'
+    if mail_list == [] or report_path == '.txt' or report_path == 'report_.txt':
         return
 
     if test_mode:
@@ -334,10 +367,67 @@ def report_collector(rse, account, session):
     return mails_reports
 
 
+def dataset_type(row):
+    """
+    extract dataset_type value from the row.
+    requires and uses only row['dataset']
+    :param row:
+    :return:
+    """
+    ds = row['dataset']
+    if ds.startswith('user.*'):
+        return 'user.'
+    if ds.startswith('group.*'):
+        return 'group.'
+    sp = ds.split('.')
+    if len(sp) != 6:
+        return '_unknown_'
+    return sp[4]
 
-# the res_scope statistics is the same for all admins
+
+# store the rse_dataset statistics in the cache, because it is the same for all admins
+cache_rse_dataset_text = ''
+cache_rse_dataset_html = ''
+
+
+@print_time
+def prepare_rse_dataset_table(to_mail):
+    """
+    prepare strings with a full rse/dataset=>lost_files statistics table
+    :param to_mail: recepient addr (string) - just to check if it is email  where the WHOLE rse-scope statistics needs to be sent
+    :return:
+    text_table_string, html_table_string
+    """
+    if to_mail not in ddm_admin_mails and to_mail not in gdp_emails and to_mail not in always_report_email:
+        return '', ''
+    global cache_rse_dataset_text, cache_rse_dataset_html
+    if cache_rse_dataset_text != '':
+        return cache_rse_dataset_text, cache_rse_dataset_html
+    df = pd.read_csv(tmpdata_path, sep=" |\t",
+                     names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
+    df0 = df.drop_duplicates(subset=['scope', 'file_name', 'rse', 'dataset'])  #
+    df0['dataset_type'] = df0.apply(lambda row: dataset_type(row), axis=1)
+    df1 = df0[['rse', 'dataset_type']]
+    sr = df1.groupby(['rse', 'dataset_type']).size().sort_values(ascending=False)
+    if len(sr) == 0:
+        return '', ''
+    stat_text = "\nRSE-dataset_type-count table:\n"
+    stat_html = "<tr><td>RSE</td><td>Dataset type</td><td>Lost files</td></tr>\n"
+    for it in sr.iteritems():
+        rse = it[0][0]
+        dset = it[0][1]
+        count = it[1]
+        stat_text += "%s  %s %s\n" % (rse, dset, count)
+        stat_html += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % (rse, dset, count)
+    stat_html = '<p>Total summary of ALL lost files:</p><table cellspacing="0" cellpadding="1" border="1">\n' + stat_html + '</table>\n'
+    cache_rse_dataset_text, cache_rse_dataset_html = stat_text, stat_html  # remember in the cache for use in next calls
+    return stat_text, stat_html
+
+
+# store the rse_scope statistics - it is the same for all admins
 cache_rse_scope_text = ''
 cache_rse_scope_html = ''
+
 
 @print_time
 def prepare_rse_scope_table(to_mail):
@@ -352,8 +442,10 @@ def prepare_rse_scope_table(to_mail):
     global cache_rse_scope_text, cache_rse_scope_html
     if cache_rse_scope_text != '':
         return cache_rse_scope_text, cache_rse_scope_html
-    df = pd.read_csv(tmpdata_path, sep=" |\t", names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
-    df0 = df.drop_duplicates(subset=['scope', 'file_name', 'rse']) # files with same "scope-file-rse" but different datasets are counted as one file
+    df = pd.read_csv(tmpdata_path, sep=" |\t",
+                     names=['scope', 'file_name', 'scope2', 'dataset', 'rse', 'account', 'date', 'time'])
+    df0 = df.drop_duplicates(subset=['scope', 'file_name',
+                                     'rse'])  # files with same "scope-file-rse" but different datasets are counted as one file
     df1 = df0[['rse', 'scope']]
     df1.loc[df1['scope'].str.startswith('user.'), 'scope'] = 'user.*'
     sr = df1.groupby(['rse', 'scope']).size().sort_values(ascending=False)
@@ -368,9 +460,9 @@ def prepare_rse_scope_table(to_mail):
         stat_text += "%s  %s %s\n" % (rse, scope, count)
         stat_html += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % (rse, scope, count)
     stat_html = '<p>Total summary of ALL lost files:</p><table cellspacing="0" cellpadding="1" border="1">\n' + stat_html + '</table>\n'
-    #if test_mode:
+    # if test_mode:
     #    print "test mode: prepare_rse_scope_table() prepared to %s: stat_text=%s, stat_html=%s\n" % (to_mail, stat_text, stat_html)
-    cache_rse_scope_text, cache_rse_scope_html = stat_text, stat_html # remember in the cache for use in next calls
+    cache_rse_scope_text, cache_rse_scope_html = stat_text, stat_html  # remember in the cache for use in next calls
     return stat_text, stat_html
 
 
@@ -414,7 +506,8 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
             stat_text += "%s: %s\n" % (say_total, total_counter)
             stat_html += "<tr><td>%s</td><td>%d</td></tr>\n" % (say_total, total_counter)
         stat_text = "\nNumber of lost files in %ss:\n" % col1 + stat_text + "Total: %s\n" % total_counter
-        stat_html = '<p>"%s / %s" summary of your reports:</p><table cellspacing="0" cellpadding="1" border="1">\n'  % (col1, col2) + stat_html + '</table>\n'
+        stat_html = '<p>"%s / %s" summary of your reports:</p><table cellspacing="0" cellpadding="1" border="1">\n' % (
+            col1, col2) + stat_html + '</table>\n'
     return stat_text, stat_html
 
 
@@ -426,18 +519,18 @@ def send_report(to_mail, report_paths):
         print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, ", ".join(report_paths)))
         if not any(s.lower() == to_mail.lower() for s in mails_to_test):
             print 'Test_mode: report is not sent, because %s  is not specified in mails_to_test: %s' % (
-            to_mail, mails_to_test)
+                to_mail, mails_to_test)
             return
-        print 'Test_mode: mail to %s  to be sent to tester %s  instead' % (to_mail, tester_email)
-        recipients = [tester_email]
+        print 'Test_mode: mail to %s to be sent to tester %s  instead' % (to_mail, tester_emails)
+        recipients = tester_emails
     else:
         recipients = [to_mail]
 
     msg = MIMEMultipart('mixed')
-    if not test_mode or test_mode_send_real_emails :
-        msg['Subject'] = 'DDMops: completely lost files that may affect you - last 7 days'
+    if not test_mode or test_mode_send_real_emails:
+        msg['Subject'] = 'DDMops: completely lost files that may affect you - last week Mon-Sun'
     else:
-        msg['Subject'] = 'DDMops: completely lost files that may affect %s - last 7 days' % to_mail
+        msg['Subject'] = 'DDMops: completely lost files that may affect %s - last week Mon-Sun' % to_mail
     # note: from_mail will be specified in the smtplib.
     msg['From'] = from_email
     msg['To'] = ", ".join(recipients)
@@ -447,12 +540,13 @@ def send_report(to_mail, report_paths):
     stat_rse_text, stat_rse_html = prepare_stat_table(to_mail, stat_mail_rse, stat_rse_count, 'RSE', 'Lost files')
     stat_acc_text, stat_acc_html = prepare_stat_table(to_mail, stat_mail_acc, stat_acc_count, 'Account', 'Lost files')
     stat_rse_scope_text, stat_rse_scope_html = prepare_rse_scope_table(to_mail)
+    stat_rse_dataset_text, stat_rse_dataset_html = prepare_rse_dataset_table(to_mail)
 
     message_top_text = ''
     message_top_html = ''
     if test_mode and [to_mail] != recipients:
-        say = 'Your email ' + tester_email + ' was specified as tester email to check_lost_files script output: this mail was originally designed to %s' % [
-            to_mail]
+        say = 'Your e-mail was specified in tester emails list %s of the check_lost_file script. The original receipient of this mail is %s' % (
+            tester_emails, to_mail)
         message_top_text += say + '\n'
         message_top_html += '<p>' + say + '</p>\n'
 
@@ -465,50 +559,85 @@ def send_report(to_mail, report_paths):
     lines = []
     lines_txt = []
     all_inline = True
-    for report_path in report_paths:
-        fr = open(report_path, 'r')
-        for lost_file in fr.readlines():
-            if len(lines) > max_lines_inline:
-                all_inline = False
-                break
-            lines_txt.append(lost_file)
-            # convert to html
-            # always cut to 4 first worlds lost_file, as file reports have more words (different formats)
-            html_line = '<tr><td>' + '</td><td>'.join(lost_file.replace('\n', '').split()[:4]) + '</td></tr>\n'
-            lines.append(html_line)
-        fr.close()
-        if not all_inline:
-            break
+    not_zipped_files = 0
+    zipped_files = 0
+    for report_path in report_paths:  # count nub
+        report_path_ext = path_to_file(report_path)
+        if report_path_ext != report_path:  # do not try to unpack
+            zipped_files += 1  # zipped reports (do not unzip)
+            all_inline = False
+            continue
+        else:
+            not_zipped_files += 1
+            if len(lines) < max_lines_inline:  # if we have some data to inline
+                fr = open(report_path_ext, 'r')
+                for lost_file in fr.readlines():
+                    lines_txt.append(lost_file)
+                    if len(lines) >= max_lines_inline:
+                        all_inline = False
+                        break
+                    # convert to html
+                    # always cut to 4 first worlds lost_file, as file reports have more words (different formats)
+                    html_line = '<tr><td>' + '</td><td>'.join(lost_file.replace('\n', '').split()[:4]) + '</td></tr>\n'
+                    lines.append(html_line)
+            fr.close()
 
     # for l in lines:
     #   msg.attach(MIMEText(str(l)))
+    lf_table_text = ''
+    lf_table_html = ''
+    if len(lines) > 0:
+        if all_inline:
+            say = '\nAll your lost files are in this inline list:'
+        else:
+            say = '\nSome of your lost files (full list in the attachment):'
+            lines_txt.append('...')
+            # situation 2019: the format of reports files are different, but contains 4 words in a row for rse/account repot and 8 for gdb
+            lines.append('<tr>' + '<td>...</td>' * 4 + '</tr>')
 
-    if all_inline:
-        say = '\nAll your lost files are in this inline list:'
-    else:
-        say = '\nLost files head of your lost files (full list in the attachment):'
-        lines_txt.append('...')
-        # situation 2019: the format of reports files are different, but contains 4 words in a row for rse/account repot and 8 for gdb
-        lines.append('<tr>' + '<td>...</td>' * 4 + '</tr>')
+        lf_table_text += say + '\n'
+        lf_table_html += '<p>' + say + '</p>'
+        lf_table_text += ''.join(lines_txt)
+        lf_table_html += '<table cellspacing="0" cellpadding="1" border="1">\n' + ''.join(
+            lines) + '</table>'
 
-    lf_table_title_text = say + '\n'
-    lf_table_title_html = '<p>' + say + '</p>'
+    total_files = zipped_files + not_zipped_files
+    print_num = lambda num, name, delim: (str(num) + name + ('s' if num > 1 else '') + delim) if num > 0 else ''
+    say = '\n Attached ' + print_num(total_files, ' file', '') + ':' \
+          + print_num(not_zipped_files, ' text file', ' and ' if zipped_files > 0 else '') \
+          + print_num(zipped_files, ' compressed file', '')
+    lf_table_text += say + '\n'
+    lf_table_html += '<p>' + say + '</p>'
 
-    lf_table_text = lf_table_title_text + ''.join(lines_txt)
-    lf_table_html = lf_table_title_html + '<table cellspacing="0" cellpadding="1" border="1">\n' + ''.join(
-        lines) + '</table>'
-    msg_alt.attach(MIMEText(message_top_text + stat_rse_text + stat_acc_text + stat_rse_scope_text + lf_table_text, 'plain'))
-    msg_alt.attach(MIMEText(header + message_top_html + stat_rse_html + stat_acc_html  + stat_rse_scope_html + lf_table_html + footer, 'html'))
+    msg_alt.attach(MIMEText(
+        message_top_text + stat_rse_text + stat_acc_text + stat_rse_dataset_text + stat_rse_scope_text + lf_table_text,
+        'plain'))
+    msg_alt.attach(MIMEText(
+        header + message_top_html + stat_rse_html + stat_acc_html + stat_rse_dataset_html + stat_rse_scope_html + lf_table_html + footer,
+        'html'))
     msg.attach(msg_alt)
 
     # attachments
+    print "send to %s paths: %s" % (to_mail, str(report_paths))
     for report_path in report_paths:
-        fr = open(report_path, 'rb')
-        part = MIMEBase('text', 'plain')
-        # part = MIMEBase('application', "octet-stream")
+        report_path_ext = path_to_file(report_path)
+        print "report_path='%s', report_path_ext='%s'" % (report_path, report_path_ext)
+        f_name = os.path.basename(report_path_ext)
+        print "report_path='%s', report_path_ext='%s', f_name='%s'" % (report_path, report_path_ext, f_name)
+        ext = os.path.splitext(f_name)[1]
+        # tried to use mimetypes.guess() -- not good, lets hardcode few mimetypes
+        if ext == ".txt":
+            (t_main, t_sub) = ('text', 'plain')
+        elif ext == ".gz":
+            (t_main, t_sub) = ('application', 'gzip')
+        elif ext == '.bz2':
+            (t_main, t_sub) = ('application', 'bzip2')
+
+        part = MIMEBase(t_main, t_sub)
+        fr = open(report_path_ext, 'rb')
         part.set_payload(fr.read())
         Encoders.encode_base64(part)
-        part.add_header('Content-Disposition', 'attachment; filename="%s"' % report_path)
+        part.add_header('Content-Disposition', 'attachment; filename="%s"' % f_name)
         msg.attach(part)
 
     # sending email, s=server
@@ -532,14 +661,15 @@ def report_gdp():
     # INIT
     if test_mode:
         print "DEBUG: making report for GDP"
-        print "||||||||||||||||||||||||||||"
     if not os.path.isfile(tmpdata_path):
-        print "ERROR: lost files not downloaded"
+        print "ERROR: no lost file list exists: %s" % tmpdata_path
         sys.exit(CRITICAL)
 
-    cmd = 'cp %s %s' % (tmpdata_path, reports_dir + '/' + 'report_gdp')
+    file_report_name = reports_dir + '/' + 'report_gdp' + '.txt'
+    cmd = 'cp %s %s' % (tmpdata_path, file_report_name)
     os.system(cmd)
-
+    if os.path.getsize(file_report_name) > max_unzipped_attachment_size:
+        os.system(zip_cmd + ' ' + file_report_name)
     return ['gdp']
 
 
@@ -562,8 +692,9 @@ def report_by_account(session):
     data_per_account = {}
     accs = []
 
-    processed_files = [] # do not report to one account about scope:file loss in different RSEs
-    # loop over lost files from get_bad_files()
+    # use set here to increase speed
+    processed_files = {}  # do not report to one account about scope:file loss in different RSEs
+    # loop over lost files from the tmp file
     for line in fi.readlines():
         line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
         scope = line.split(' ')[0]
@@ -573,22 +704,24 @@ def report_by_account(session):
         account = line.split(' ')[5]
         updated_at = line.split(' ')[6]
 
-        # do not put into user reports duplications of the same scope:file_name  (from different datasets/rses)
-        f_did = scope + ':' + data_name
-        if f_did in processed_files:
-            continue
-        processed_files.append(f_did)
+        if check_duplicates:
+            # do not put into user reports duplications of the same scope:file_name  (from different datasets/rses)
+            f_did = scope + ':' + data_name
+            if f_did in processed_files:
+                continue
+            processed_files.add(f_did)
 
         accounts = []
         # find owners of rule, they are contacted as well
-        if test_mode:
-            print "DEBUG: get rule owners"
+        # do not print debug for rule owners -- to many logs
+        # if test_mode:
+        #    print "DEBUG: get rule owners"
         rule_owners = get_rule_owners(scope, dataset, session)
         # did_woners = get_did_owner TO BE DEVELOPED
         for own in rule_owners:
             if own not in accounts:
                 accounts.append(own)
-        if test_mode:
+        if False and test_mode:  #
             print 'INFO:', rse_name, account, dataset, data_name
             if accounts == []:
                 print "DEBUG: there is no account to be notified."
@@ -608,12 +741,15 @@ def report_by_account(session):
 
     # create report per account
     for account in data_per_account.keys():
-        fo = open(reports_dir + '/' + 'report_' + account, 'w')
+        file_report_name = reports_dir + '/' + 'report_' + account + '.txt'
+        fo = open(file_report_name, 'w')
         for bad_file in data_per_account[account]:
             fo.write(bad_file)
             # fo.write("%s %s %s %s\n" % (bad_file['scope'], bad_file['dataset'], bad_file['name'], bad_file['time']))
         global stat_acc_count
         stat_acc_count[account] = len(data_per_account[account])
+        if os.path.getsize(file_report_name) > max_unzipped_attachment_size:
+            os.system(zip_cmd + ' ' + file_report_name)
 
     # send report by mail
     for account in data_per_account.keys():
@@ -643,7 +779,7 @@ def report_by_rses(session):
     fi = open(tmpdata_path, 'r')
     data_per_rse = {}
 
-    # loop over lost files from get_bad_files()
+    # loop over lost files lines
     for line in fi.readlines():
         line = line.strip('\n')  # the line may have trailing new line if python treats file as txt (e.g. txt extension)
         scope = line.split(' ')[0]
@@ -662,9 +798,12 @@ def report_by_rses(session):
 
     # create report per rse
     for rse in data_per_rse.keys():
-        fo = open(reports_dir + '/' + 'report_' + rse, 'w')
+        file_report_name = reports_dir + '/' + 'report_' + rse + '.txt'
+        fo = open(file_report_name, 'w')
         for bad_file in data_per_rse[rse]:
             fo.write(bad_file)
+        if os.path.getsize(file_report_name) > max_unzipped_attachment_size:
+            os.system(zip_cmd + ' ' + file_report_name)
 
     # count number of entries for each rse
     global stat_rse_count
@@ -678,26 +817,51 @@ def report_by_rses(session):
     return data_per_rse.keys()
 
 
-# the input
 @print_time
-def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
-    if test_mode and test_mode_use_tmp_file and os.path.isfile(tmpdata_path) and os.stat(tmpdata_path).st_size > 0:
-        print(
-                'the flags "test_mode" and "test_mode_use_tmp_file" are set: do not query rucio, use tmp file "%s" instead' % tmpdata_path)
-        return True
+def get_lost_files_cache():
+    """
+    uses global tmp_data_path
+    check flags
+    :return:
+    True if  tmp_data_path or ext exists
+    """
+    flog = open(log_path, 'a')
+    if test_mode and test_mode_use_tmp_file:
+        tmpdata_path_ext = path_to_file(tmpdata_path)
+        if tmpdata_path_ext == '':
+            return False
+        if tmpdata_path_ext != tmpdata_path:
+            flog.write('INFO: decompress lost files list from %s\n' % tmpdata_path_ext)
+            os.system(unzip_cmd + ' ' + tmpdata_path_ext)
+            # rm tmpdata_path may be here
+        if os.path.isfile(tmpdata_path) and os.stat(tmpdata_path).st_size > 0:
+            print 'get lost files from the cache %s\n' % tmpdata_path
+            flog.write('INFO: get lost files list from %s\n' % tmpdata_path)
+            return True
+    return False
+
+
+@print_time
+def get_lost_files_rucio(session, outfile=tmpdata_path):
+    # check if tmpdata_path file exists and  may be re-used
+    flog = open(log_path, 'a')
+    flog.write('INFO: request lost files list from rucio\n')
+
     f = open(outfile, 'w')
+    orig_query = False
     try:
         if orig_query:  # origin query till the end of 2019, for backward compatibility
             query = ''' select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b
     where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name '''
         else:
-            query0 = (  # origin + reformatted in multiple lines + former python-code selection is included in request = it works slower then original (because of increased "where" clause without index)
+            query0 = (
+                # origin + reformatted in multiple lines + former python-code selection is included in request = it works slower then original (because of increased "where" clause without index)
                 "select a.scope, a.name, b.scope, b.name, atlas_rucio.id2rse(a.rse_id), a.account, a.updated_at from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
                 " where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name "
                 " and  b.name not like 'panda.%' and b.name not like '%_sub%' "
             )
             query1 = (  # improved query0 -- nested select instead of increased  where clause
-                "select * from" # It seems to be the optimal query, the next queries2+ does not give time benefit (~same or slower)
+                "select * from"  # It seems to be the optimal query, the next queries2+ does not give time benefit (~same or slower)
                 " ( select a.scope as scope, a.name as name, b.scope as bscope,  b.name as dataset, atlas_rucio.id2rse(a.rse_id) as rse, a.account as account, a.updated_at as upd"
                 " from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
                 " where a.state='L' and a.updated_at>sysdate-7 and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
@@ -723,7 +887,9 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
                 "select * from"
                 " ( select a.scope as scope, a.name as name, b.scope as bscope,  b.name as dataset, atlas_rucio.id2rse(a.rse_id) as rse, a.account as account, a.updated_at as upd"
                 " from atlas_rucio.bad_replicas a, atlas_rucio.contents_history b"
-                " where a.state='L' and where YEARWEEK(date(a.updated_at), 5) = YEARWEEK( CURDATE() - INTERVAL 1 WEEK, 5)"
+                " where a.state='L' "
+                " and a.updated_at >= next_day(trunc(sysdate-14), 'Monday')"
+                " and a.updated_at <  next_day(trunc(sysdate-7), 'Monday')"
                 " and b.did_type='D' and a.scope=b.child_scope and a.name=b.child_name )  T"  # mysql "as T" does not work for Oracle
                 " where T.dataset not like 'panda.%' and T.dataset not like '%_sub%' "
             )
@@ -736,42 +902,47 @@ def get_bad_files(session, outfile=tmpdata_path, orig_query=True):
         if test_mode:
             print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
 
-        processed_files_full = []
+        lines_counter = 0
+        processed_files = {}
         for row in result:
-            # no big sense in duplication check, just check duplications
-            # scope fname dataset  rse
-            f_did_full = row[0] + ':' + row[1] + ':' + row[3] + ':' + row[4]
-            if f_did_full in processed_files_full:
-                print "The bug? The file report is duplicated in rucio select results: " + f_did_full
-                continue
-            processed_files_full.append(f_did_full)
+            if check_duplicates:
+                # duplication check.
+                # scope fname dataset  rse -- the fields only are used in lost file statistics.
+                # (e.g. accounts are not used --  rule owners are used instead),
+                # other fields goes into attachment for some sake.
+                f_did = row[0] + ':' + row[1] + ':' + row[3] + ':' + row[4]
+                if f_did in processed_files:
+                    print "The file report (same scope/filename/dataset/rse) is duplicated in rucio select results: " + f_did
+                    continue
+                processed_files.add(f_did)
 
             # shorter and does not add a trailing space (not nice + dump results are stored without the trailing spaces)
             # str() conversion is necessary, as row[6] has datetime type
+            lines_counter += 1
             f.write(' '.join(str(x) for x in row) + '\n')
 
     except Exception, e:
         flog = open(log_path, 'a')
-        flog.write('get_bad_files\n')
-        flog.write(str(e) + "\n")
+        flog.write('ERROR: get lost files from rucio exception: %s\n' % str(e))
         return False
 
+    flog.write('INFO: %d of lost files lines were stored from rucio result\n' % lines_counter)
     return True
 
 
 @print_time
-def get_bad_files_from_dump(session):
+def get_lost_files_dump(session):
     flog = open(log_path, 'a')
     url = 'https://rucio-hadoop.cern.ch/lost_files'
     dump7 = requests.get(url, verify=False)
     if dump7.status_code == 404:
-        flog.write('ERROR: dump of bad files not reachable on hadoop\n')
+        flog.write('INFO: ready dump of lost files is not reachable at %s\n' % url)
         return False
 
+    flog.write('INFO: get lost files ready dump from %s\n' % url)
     f = open(tmpdata_path, 'w')
     line_counter = 0
-    processed_files = []
-    processed_files_full = []
+    processed_files = {}
     for l in dump7.text.splitlines():  # former split('\n'): split 'abc\n' to ['abc' ,'']
         line_counter += 1
         data = l.split('\t')
@@ -784,13 +955,13 @@ def get_bad_files_from_dump(session):
             continue
         if '_sub' in data[3]:
             continue
-
-        # check the full file id (with RSE) uniqueness
-        f_did_full = data[0] + ':' + data[1] + ':' + data[3] + ':' + data[4]
-        if f_did_full in processed_files_full:
-            print "The bug? The file report is duplicated in results from dump: " + f_did_full
-            continue
-        processed_files_full.append(f_did_full)
+        if check_duplicates:
+            # select only unique files (id = scope-filename-dataset-rse). It may drastically increase the time of large list reception
+            f_did = data[0] + ':' + data[1] + ':' + data[3] + ':' + data[4]
+            if f_did in processed_files:
+                print "The file report is duplicated in results from dump: " + f_did
+                continue
+            processed_files.add(f_did)
 
         updated_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(
             float(data[6])))  # agb: time was added to date, for compatabiliity with tmp_file format from rucio request
@@ -813,25 +984,28 @@ def main():
     session = get_session()
 
     mail_rep = {}
-    # get input
-    if not disable_dump_usage:
-        get_input = get_bad_files_from_dump(session)
-    if disable_dump_usage or not get_input:
-        if not disable_dump_usage:
-            print 'WARNING: the dump is not accessible'
-        else:
-            print 'dump usage is disabled'
-        get_input = get_bad_files(session)
+    # get input file
+    get_input = False
+    if force_rucio_select:
+        print 'INFO: forced_rucio_select flag is on -> only rucio select will start\n'
+        get_input = get_lost_files_rucio(session)
         if not get_input:
+            print 'Error: forced rucio select failed, exit\n'
             sys.exit(CRITICAL)
-    elif force_rucio_select:
-        print 'WARNING: forced rucio select flag is on, so call rucio'
-        # get_input = get_bad_files(session, outfile=tmpdata_path2)
-        # if not get_input:
-        #    sys.exit(CRITICAL)
-        get_input = get_bad_files(session, outfile=tmpdata_path3, orig_query=False)
+    else:
+        if read_from_cache:
+            get_input = get_lost_files_cache()
         if not get_input:
-            sys.exit(CRITICAL)
+            print 'get lost files from the dump\n'
+            get_input = get_lost_files_dump(session)
+            if not get_input:
+                print 'get lost files from rucio\n'
+                get_input = get_lost_files_rucio(session)
+                if not get_input:
+                    print 'ERROR: failed to get lost files from cache, dump, rucio. Exit now.\n'
+                    sys.exit(CRITICAL)
+
+    print 'get lost files list finished successfully\n'
 
     # make and sent report to groups
     if groups:
@@ -868,9 +1042,13 @@ def main():
     for m in mail_rep.keys():
         send_report(m, mail_rep[m])
 
-    # clean tmp
-    cmd = 'rm ' + tmpdata_path
-    # os.system(cmd)
+    if remove_tmp_file:
+        cmd = 'rm ' + tmpdata_path
+        os.system(cmd)
+    else:
+        if zip_tmp_file and os.path.getsize(tmpdata_path) > max_unzipped_tmp_file_size:
+            cmd = zip_cmd + ' ' + tmpdata_path
+            os.system(cmd)
 
 
 if __name__ == '__main__':
