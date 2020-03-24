@@ -73,7 +73,7 @@ if __name__ == '__main__':
         print('%i users extracted from VOMS with %s' % (NBUSERS, account))
 
     ACCOUNT_LIST = [
-        'calib-muon', 'dataprep', 'det-alfa', 'det-ibl', 'det-indet',
+        'art', 'calib-muon', 'dataprep', 'det-alfa', 'det-ibl', 'det-indet',
         'det-larg', 'det-muon', 'det-slhc', 'det-tile', 'perf-egamma',
         'perf-flavtag', 'perf-idtracking', 'perf-jets', 'perf-muons',
         'perf-tau', 'phys-beauty', 'phys-exotics', 'phys-gener', 'phys-hdbs',
