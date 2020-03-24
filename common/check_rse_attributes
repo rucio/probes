@@ -150,6 +150,8 @@ if __name__ == '__main__':
                 add_rse_attribute(name, 'datapolicyt0tape', 'T0Tape' in rse['datapolicies'], session=session)
                 add_rse_attribute(name, 'datapolicyt0taskoutput', 'T0TaskOutput' in rse['datapolicies'], session=session)
                 add_rse_attribute(name, 'datapolicynucleus', 'Nucleus' in rse['datapolicies'], session=session)
+            if rse['type'] in ('CALIBDISK', 'GROUPDISK', 'LOCALGROUPDISK'):
+                add_rse_attribute(name, 'greedyDeletion', True, session=session)
 
             space_used = get_rse_usage(rse=name, source='storage', session=session)
             unavailable_space = get_rse_usage(rse=name, source='unavailable', session=session)
