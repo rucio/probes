@@ -8,26 +8,37 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 
-'''
+from __future__ import print_function
+
+"""
 Probe to check the backlog of expired dids.
-'''
+"""
+
 import sys
 import traceback
 
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
 if __name__ == "__main__":
     try:
         session = get_session()
-        result = session.execute('select count(*) from atlas_rucio.dids where expired_at is not null and expired_at < sys_extract_utc(localtimestamp)').fetchone()[0]
+        query = """select count(*) from {schema}dids 
+                   where expired_at is not null 
+                   and expired_at < sys_extract_utc(localtimestamp)""".format(schema=schema)
+        result = session.execute(query).fetchone()[0]
         # Possible check against a threshold. If result > max_value then sys.exit(CRITICAL)
         monitor.record_gauge(stat='undertaker.expired_dids', value=result)
-        print result
+        print(result)
     except:
-        print traceback.format_exc()
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)

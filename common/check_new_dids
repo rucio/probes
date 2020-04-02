@@ -8,25 +8,34 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 
-'''
+from __future__ import print_function
+
+"""
 Probe to check the backlog of new dids.
-'''
+"""
 import sys
 import traceback
 
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
 if __name__ == "__main__":
     try:
         session = get_session()
-        result = session.execute('select  /*+ index_FFS(dids DIDS_IS_NEW_IDX) */   count(1) from atlas_rucio.dids where is_new is not null').fetchone()[0]
+        query = """select  /*+ index_FFS(dids DIDS_IS_NEW_IDX) */   count(1) from {schema}dids 
+                   where is_new is not null""".format(schema=schema)
+        result = session.execute(query).fetchone()[0]
         monitor.record_gauge(stat='transmogrifier.new_dids', value=result)
-        print result
+        print(result)
     except:
-        print traceback.format_exc()
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
