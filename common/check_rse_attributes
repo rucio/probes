@@ -136,6 +136,8 @@ if __name__ == '__main__':
             if rse['phys_groups']:
                 add_rse_attribute(name, 'physgroup', str(rse['phys_groups'][0]), session=session)
             if rse['type'] not in ['OS_LOGS', 'OS_ES']:
+                if 'MASTER' not in rse['servedrestfts']:
+                    continue
                 if isinstance(rse['servedrestfts']['MASTER'], list):
                     add_rse_attribute(name, 'fts', ','.join(rse['servedrestfts']['MASTER']), session=session)
                 else:
