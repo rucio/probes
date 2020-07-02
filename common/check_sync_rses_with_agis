@@ -134,7 +134,7 @@ if __name__ == '__main__':
                     for protocol, agis_prio, agis_prefix in rse['aprotocols'][activity]:
                         index += 1
                         o = urlparse.urlparse(protocol)
-                        if o.scheme not in ('https', 'http', 'srm', 'gsiftp', 'root', 'davs', 'dav', 'storm'):
+                        if o.scheme not in ('https', 'http', 'srm', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                             continue
                         if (o.scheme, o.netloc) not in priority:
                             priority[(o.scheme, o.netloc)] = {'read_lan': 0, 'read_wan': 0, 'write_lan': 0, 'write_wan': 0, 'delete_lan': 0, 'delete_wan': 0, 'third_party_copy': 0}
@@ -152,7 +152,7 @@ if __name__ == '__main__':
             for protocol in rse['protocols']:
                 try:
                     o = urlparse.urlparse(protocol)
-                    if o.scheme not in ('https', 'http', 'srm', 'gsiftp', 'root', 'davs', 'dav', 'storm'):
+                    if o.scheme not in ('https', 'http', 'srm', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                         continue
 
                     protocols = rse['protocols'][protocol]
@@ -177,6 +177,12 @@ if __name__ == '__main__':
                     elif o.scheme == 'root':
                         extended_attributes = None
                         impl = 'rucio.rse.protocols.gfal.Default'
+                    elif o.scheme == 'storm':
+                        extended_attributes = None
+                        impl = 'rucio.rse.protocols.storm.Default'
+                    elif o.scheme == 'globus':
+                        extended_attributes = None
+                        impl = 'rucio.rse.protocols.globus.GlobusRSEProtocol'
                     else:
                         continue
 
@@ -192,6 +198,8 @@ if __name__ == '__main__':
                             port = 2811
                         elif o.scheme in ('root', 'storm'):
                             port = 1094
+                        elif o.scheme in ('globus'):
+                            port = 0
 
                     # For disk end-points not for tape
                     prefix = rse['protocols'][protocol][0][2]
