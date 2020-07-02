@@ -10,6 +10,7 @@
  - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
  - Mario Lassnig, <mario.lassnig@cern.ch>, 2015
  - Eric Vaandering, <ewv@fnal.gov>, 2019
+ - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 """
 
 import os
@@ -17,6 +18,7 @@ import sys
 from urlparse import urlparse
 import urllib3
 
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 import requests
 
 from rucio.common.config import config_get, config_get_bool
@@ -34,6 +36,10 @@ if BASE.metadata.schema:
     schema = BASE.metadata.schema + '.'
 else:
     schema = ''
+
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
 
 if __name__ == "__main__":
 
@@ -73,6 +79,8 @@ if __name__ == "__main__":
     except Exception as error:
         UPDATE_DIST = True
 
+    registry = CollectorRegistry()
+    g = Gauge('fts_submitted', '', labelnames=('hostname',), registry=registry)
     errmsg = ''
     for ftshost in FTSHOSTS.split(','):
         print("=== %s ===" % ftshost)
@@ -130,6 +138,7 @@ if __name__ == "__main__":
                 monitor.record_gauge(stat='fts3.%s.submitted' % hostname,
                                      value=(summary['submitted'] + summary['active']
                                             + summary['staging'] + summary['started']))
+                g.labels(**{'hostname': hostname}).set((summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
                 retvalue = OK
                 break
             except Exception as error:
@@ -142,6 +151,13 @@ if __name__ == "__main__":
         if retvalue == CRITICAL:
             print("All attempts failed. %s" % errmsg)
         WORST_RETVALUE = max(retvalue, WORST_RETVALUE)
+
+    if len(PROM_SERVERS):
+        for server in PROM_SERVERS:
+            try:
+                push_to_gateway(server.strip(), job='check_fts_backlog', registry=registry)
+            except:
+                continue
 
     if not UPDATE_DIST:
         sys.exit(WORST_RETVALUE)

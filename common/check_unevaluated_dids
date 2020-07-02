@@ -7,6 +7,7 @@
 #
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
+# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 
 """
 Probe to check the backlog of dids waiting for rule evaluation.
@@ -14,6 +15,9 @@ Probe to check the backlog of dids waiting for rule evaluation.
 
 import sys
 
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
+from rucio.common.config import config_get
 from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
 
@@ -27,11 +31,26 @@ else:
 
 count_sql = 'SELECT COUNT(*) FROM {schema}updated_dids'.format(schema=schema)
 
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
+
 if __name__ == "__main__":
     try:
         session = get_session()
         result = session.execute(count_sql).fetchone()[0]
         monitor.record_gauge(stat='judge.waiting_dids', value=result)
+
+        registry = CollectorRegistry()
+        Gauge('judge_waiting_dids', '', registry=registry).set(result)
+
+        if len(PROM_SERVERS):
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_unevaluated_dids', registry=registry)
+                except:
+                    continue
+
         print result
     except:
         sys.exit(UNKNOWN)

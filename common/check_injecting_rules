@@ -7,6 +7,7 @@
 #
 # Authors:
 # - Martin Barisits, <martin.barisits@cern.ch>, 2016
+# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 
 '''
 Probe to check the backlog of injecting rules.
@@ -14,17 +15,40 @@ Probe to check the backlog of injecting rules.
 import sys
 import traceback
 
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
+from rucio.common.config import config_get
 from rucio.core import monitor
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
+
 if __name__ == "__main__":
     try:
+        registry = CollectorRegistry()
         session = get_session()
-        result = session.execute('select count(1) from atlas_rucio.rules where state=\'I\'').fetchone()[0]
+        injecting_rules = 'select count(1) from {schema}rules where state=\'I\''.format(schema=schema)
+        result = session.execute(injecting_rules).fetchone()[0]
         monitor.record_gauge(stat='judge.injecting_rules', value=result)
+        Gauge('judge_injecting_rules', '', registry=registry).set(result)
+
+        if len(PROM_SERVERS):
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_injecting_rules', registry=registry)
+                except:
+                    continue
+
         print result
     except:
         print traceback.format_exc()
