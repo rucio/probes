@@ -177,6 +177,9 @@ if __name__ == '__main__':
                     elif o.scheme == 'root':
                         extended_attributes = None
                         impl = 'rucio.rse.protocols.gfal.Default'
+                    elif o.scheme == 'storm':
+                        extended_attributes = None
+                        impl = 'rucio.rse.protocols.storm.Default'
                     else:
                         continue
 
