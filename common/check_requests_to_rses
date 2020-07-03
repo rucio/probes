@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
         # check left requests which are 12 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=12)
-        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}d2rse(dest_rse_id) rse, state, count(*) \
+        sql = "select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}id2rse(dest_rse_id) rse, state, count(*) \
               from {schema}requests where request_type='T' and created_at<=to_timestamp('".format(schema=schema) \
               + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF') group by dest_rse_id, state".format(schema=schema)
         result = session.execute(sql).fetchall()
