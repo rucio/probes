@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) 2013
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Thomas Beerman, <thomas.beermann@cern.ch>, 2020
+
+'''
+Probe to check faulty kubernetes nodes.
+'''
+import sys
+from kubernetes import client, config
+
+from rucio.common.config import config_get
+
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+EXPECTED = {
+    "Ready": "True",
+    "PIDPressure": "False",
+    "DiskPressure": "False",
+    "MemoryPressure": "False",
+    "NetworkUnavailable": "False",
+    "KernelDeadlock": "False",
+    "ReadonlyFilesystem": "False"
+}
+
+CLUSTERS = config_get("nagios", "k8s_clusters").split(",")
+CONFIG_PATH = config_get("nagios", "k8s_config_path")
+
+
+def check_node(node):
+    name = node.metadata.name
+    ret = "Node: %s\n" % name
+    allok = True
+    try:
+        for condition in node.status.conditions:
+            type = condition.type
+            if condition.status != EXPECTED[type]:
+                ret += "%s: %s: %s\n" % (condition.type, condition.reason, condition.message)
+                allok = False
+        if not allok:
+            return ret
+        return False
+    except Exception as e:
+        print(e)
+        sys.exit(UNKNOWN)
+
+
+if __name__ == "__main__":
+    allok = True
+    output = []
+    for cluster in CLUSTERS:
+        config.load_kube_config("%s/%s" % (CONFIG_PATH, cluster))
+        v1 = client.CoreV1Api()
+        nodes = v1.list_node(watch=False)
+
+        for node in nodes.items:
+            ret = check_node(node)
+
+            if ret:
+                allok = False
+                output.append(ret)
+
+    if not allok:
+        for line in output:
+            print(line)
+        sys.exit(WARNING)
+
+    sys.exit(OK)
