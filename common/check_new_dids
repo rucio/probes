@@ -46,7 +46,9 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        query = session.query(models.DataIdentifier.scope).filter(models.DataIdentifier.is_new.isnot(None))
+        query = (session.query(models.DataIdentifier.scope)
+                        .with_hint(models.DataIdentifier, "INDEX_FFS(DIDS DIDS_IS_NEW_IDX)", 'oracle')
+                        .filter(models.DataIdentifier.is_new.isnot(None)))
         result = get_count(query)
         monitor.record_gauge(stat='transmogrifier.new_dids', value=result)
         Gauge('transmogrifier_new_dids', '', registry=registry).set(result)
