@@ -8,26 +8,35 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
+# - Eric Vaandering <ewv@fnal.gov>, 2020
 
-'''
+"""
 Probe to check the backlog of new dids.
-'''
+"""
+from __future__ import print_function
+
 import sys
 import traceback
+from datetime import datetime
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
 from rucio.common.config import config_get
 from rucio.core import monitor
-from rucio.db.sqla.session import BASE, get_session
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
+from sqlalchemy import func
+
+
+# TODO: Move get_count into utils
+# from rucio.db.sqla.util import get_count
+def get_count(q):
+    count_q = q.statement.with_only_columns([func.count()]).order_by(None)
+    count = q.session.execute(count_q).scalar()
+    return count
+
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
-
-if BASE.metadata.schema:
-    schema = BASE.metadata.schema + '.'
-else:
-    schema = ''
 
 PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
 if PROM_SERVERS != '':
@@ -37,8 +46,10 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        new_dids = 'select  /*+ index_FFS(dids DIDS_IS_NEW_IDX) */   count(1) from {schema}dids where is_new is not null'.format(schema=schema)
-        result = session.execute(new_dids).fetchone()[0]
+        query = (session.query(models.DataIdentifier.scope)
+                        .with_hint(models.DataIdentifier, "INDEX_FFS(DIDS DIDS_IS_NEW_IDX)", 'oracle')
+                        .filter(models.DataIdentifier.is_new.isnot(None)))
+        result = get_count(query)
         monitor.record_gauge(stat='transmogrifier.new_dids', value=result)
         Gauge('transmogrifier_new_dids', '', registry=registry).set(result)
 
@@ -49,8 +60,8 @@ if __name__ == "__main__":
                 except:
                     continue
 
-        print result
+        print(result)
     except:
-        print traceback.format_exc()
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
