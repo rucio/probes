@@ -6,8 +6,7 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Martin Barisits, <martin.barisits@cern.ch>, 2014
-# - Eric Vaandering, <ewv@fnal.gov>, 2019
+# - Fernando Garzon. oscar.fernando.garzon.miguez@cern.ch 
 
 """
 Probe to check the nember of not OK rules.
