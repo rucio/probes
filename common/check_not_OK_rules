@@ -21,19 +21,10 @@ from rucio.core import monitor
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
-from sqlalchemy import func
+from rucio.db.sqla.util import get_count
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
-
-
-# TODO: Move get_count into utils
-# from rucio.db.sqla.util import get_count
-def get_count(q):
-    count_q = q.statement.with_only_columns([func.count()]).order_by(None)
-    count = q.session.execute(count_q).scalar()
-    return count
-
 
 if __name__ == "__main__":
     try:
