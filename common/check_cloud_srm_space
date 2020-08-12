@@ -1,14 +1,23 @@
 #!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+# Copyright 2014-2020 CERN for the benefit of the ATLAS collaboration.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # Authors:
-# - Wen Guan, <wen.guan@cern.ch>, 2014
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
-#
+# - Wen Guan <wen.guan@cern.ch>, 2014
+# - Cedric Serfon <cedric.serfon@cern.ch>, 2015
+# - Mario Lassnig <mario.lassnig@cern.ch>, 2020
+
 import os
 import sys
 
@@ -45,10 +54,10 @@ if __name__ == "__main__":
         attrs = c.list_rse_attributes(rsename)
 
         if 'srm' not in schemes:
-            print "The rse(%s) has no SRM protocol defined in AGIS" % (rsename)
+            print "The RSE (%s) has no SRM protocol defined in AGIS" % (rsename)
             continue
         if not rse_settings['availability_read']:
-            print "The rse(%s) blacklisted (not available for read)" % (rsename)
+            print "The RSE (%s) is not available for read" % (rsename)
             continue
 
         for protocol in rse_settings['protocols']:
