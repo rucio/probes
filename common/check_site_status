@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2012-2018 CERN for the benefit of the ATLAS collaboration.
+# Copyright 2012-2020 CERN for the benefit of the ATLAS collaboration.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,8 @@
 # limitations under the License.
 #
 # Authors:
-#  - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2019
+# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2019
+# - Mario Lassnig <mario.lassnig@cern.ch>, 2020
 #
 # PY3K COMPATIBLE
 
@@ -61,14 +62,14 @@ if __name__ == '__main__':
     RESP = requests.get(url=URL)
     DATA = json.loads(RESP.content)
     MAPPING = {'r': 'availability_read', 'w': 'availability_write', 'd': 'availability_delete'}
-    BLACKLISTED_SITES = {'availability_read': [], 'availability_write': [], 'availability_delete': []}
+    EXCLUDED_SITES = {'availability_read': [], 'availability_write': [], 'availability_delete': []}
     DOWNTIMES = {}
     for site in DATA:
         for activity in DATA[site]:
             if activity in ['r', 'w', 'd']:
                 try:
                     if DATA[site][activity]['status']['value'] == 'OFF':
-                        BLACKLISTED_SITES[MAPPING[activity]].append(site)
+                        EXCLUDED_SITES[MAPPING[activity]].append(site)
                         if DATA[site][activity]['status']['provider'] == 'AGIS' and DATA[site][activity]['status']['reason'].find('https://goc.egi.eu/portal/index.php?Page_Type=Downtime') > -1:
                             DOWNTIMES[site] = DATA[site][activity]['status']['reason']
                 except KeyError as error:
@@ -82,16 +83,16 @@ if __name__ == '__main__':
         if (rse['name'] not in AGIS_RSES) and not (rse['state'] == 'DISABLED' or rse['site_state'] == 'DISABLED'):
             AGIS_RSES.append(rse['name'])
 
-    # Blacklisting
-    for activity in BLACKLISTED_SITES:
+    # Exclusion
+    for activity in EXCLUDED_SITES:
         for site in list_rses({activity: True}):
-            if site['rse'] in BLACKLISTED_SITES[activity]:
-                print('%s will be blacklisted for %s' % (site['rse'], activity))
+            if site['rse'] in EXCLUDED_SITES[activity]:
+                print('%s will be excluded for %s' % (site['rse'], activity))
                 try:
                     if not DRYRUN:
                         update_rse(site['rse'], {activity: False})
                         if activity in ['availability_write']:
-                            for rse in BLACKLISTED_SITES[activity]:
+                            for rse in EXCLUDED_SITES[activity]:
                                 if rse in DOWNTIMES:
                                     protocols = get_rse_protocols(rse)
                                     for prot in protocols['protocols']:
@@ -105,15 +106,15 @@ if __name__ == '__main__':
                     if STATUS == OK:
                         STATUS = WARNING
 
-    # Whitelisting
-    for activity in BLACKLISTED_SITES:
+    # Inclusion
+    for activity in EXCLUDED_SITES:
         for site in list_rses({activity: False}):
             rse = site['rse']
             if rse not in AGIS_RSES:
                 print('%s does not exist in AGIS' % (rse))
                 continue
-            if rse not in BLACKLISTED_SITES[activity]:
-                print('%s will be whitelisted for %s' % (rse, activity))
+            if rse not in EXCLUDED_SITES[activity]:
+                print('%s will be included for %s' % (rse, activity))
                 try:
                     if not DRYRUN:
                         update_rse(rse, {activity: True})
