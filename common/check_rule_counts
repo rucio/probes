@@ -24,6 +24,7 @@ from rucio.core import monitor
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import (RuleState)
 from rucio.db.sqla.session import get_session
+from rucio.db.sqla.util import get_count
 from sqlalchemy import func
 
 # Exit statuses
@@ -60,6 +61,10 @@ if __name__ == "__main__":
             'created_1week_ago': datetime.timedelta(hours=168),
             'created_3weeks_ago': datetime.timedelta(hours=672),
         }
+
+        query = session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state != RuleState.OK)
+        result = get_count(query)
+        monitor.record_gauge(stat='judge.total_not_OK_rules', value=result)
 
         query = (session.query(func.sum(models.ReplicationRule.locks_stuck_cnt))
                         .filter(models.ReplicationRule.state == RuleState.STUCK))
