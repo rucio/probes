@@ -6,7 +6,7 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Eric V. and Fernando G.
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015. Eric Vaandering, <ewv@fnal.gov> and Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>
 
 '''
 Probe to check the locked expired rules or datasets with locked rules
@@ -34,37 +34,29 @@ if PROM_SERVERS != '':
     PROM_SERVERS = PROM_SERVERS.split(',')
 
 
-
 if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        sub_query = session.query(models.ReplicationRule).filter(models.ReplicationRule.scope == models.DataIdentifier.scope).\
-            filter(models.ReplicationRule.name == models.DataIdentifier.name).filter(models.ReplicationRule.locked == True)
-
-        query = session.query(models.DataIdentifier.scope, models.DataIdentifier.name).filter(models.DataIdentifier.expired_at != None).\
-            filter(models.DataIdentifier.expired_at != None).\
-                filter(models.DataIdentifier.expired_at < datetime.utcnow()).\
-                    filter(sub_query.exists())
-
-        dids = query.all()
-        print(query)
+        sub_query = session.query(func.count(models.ReplicationRule.id),models.ReplicationRule.rse_expression).\
+            join(models.DataIdentifier, (models.ReplicationRule.scope == models.DataIdentifier.scope) 
+            & (models.ReplicationRule.name == models.DataIdentifier.name)).\
+                filter(models.ReplicationRule.locked == True).\
+                    filter(models.DataIdentifier.expired_at != None).\
+                    filter(models.DataIdentifier.expired_at < datetime.utcnow()).\
+                        group_by(models.ReplicationRule.rse_expression)
+        dids = sub_query.all()
+        print(dids)
+        print(sub_query)
         for did in dids:
-            supra_query = session.query(models.ReplicationRule.name, models.ReplicationRule.id,models.ReplicationRule.rse_expression, func.count(models.ReplicationRule.scope)).\
-              filter(models.ReplicationRule.scope == did[0]).filter(models.ReplicationRule.name == did[1]).\
-                group_by(models.ReplicationRule.name,models.ReplicationRule.rse_expression,models.ReplicationRule.id)
-            #result = supra_query.one()
-            result = supra_query.all()
-            #monitor.record_gauge(stat='rucio.judge.expired_locked_rules', value=result[2])
-            print(supra_query)
-            #print(result)
-            print(result)
-            #Gauge('rucio_judge_ok_rules', '', registry=registry).set(result[2])
+
+            monitor.record_gauge(stat='rucio.judge.expired_locked_rules.%s' %did[1], value=did[0])
+            Gauge('rucio_expired_locked_rules', '', registry=registry).set(did[0])
 
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
                 try:
-                    push_to_gateway(server.strip(), job='check_ok_rules', registry=registry)
+                    push_to_gateway(server.strip(), job='check_expired_locked_rules', registry=registry)
                 except:
                     continue
 
