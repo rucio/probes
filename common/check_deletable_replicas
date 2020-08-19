@@ -6,7 +6,9 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Fernando Garzon. oscar.fernando.garzon.miguez@cern.ch
+# - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2014
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2018
+# - Fernando Garzon. oscar.fernando.garzon.miguez@cern.ch, 2020
 
 '''
 Probe to check the number of deletable files per rse, as well as
