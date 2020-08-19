@@ -30,7 +30,7 @@ PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False
 if PROM_SERVERS != '':
     PROM_SERVERS = PROM_SERVERS.split(',')
 
-if __name__ == "__main__":
+def main():
     try:
         registry = CollectorRegistry()
         session = get_session()
@@ -53,3 +53,6 @@ if __name__ == "__main__":
     except Exception as error:
         print('THE ERROR IS ',error)
         sys.exit(UNKNOWN)(OK)
+
+if __name__ == "__main__":
+    main()
