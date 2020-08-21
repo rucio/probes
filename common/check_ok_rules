@@ -41,7 +41,7 @@ def main():
         # Possible check against a threshold. If result > max_value then sys.exit(CRITICAL)
 
         monitor.record_gauge(stat='rucio.judge.ok_rules', value=result)
-        Gauge('rucio_judge_ok_rules', '', registry=registry).set(result)
+        #Gauge('rucio_judge_ok_rules', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
