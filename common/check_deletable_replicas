@@ -34,7 +34,7 @@ PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False
 if PROM_SERVERS != '':
     PROM_SERVERS = PROM_SERVERS.split(',')
 
-def main():
+if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
@@ -43,7 +43,6 @@ def main():
             models.RSEFileAssociation.state!=ReplicaState.UNAVAILABLE,
             models.RSEFileAssociation.state!=ReplicaState.TEMPORARY_UNAVAILABLE,
             models.RSEFileAssociation.tombstone < datetime.utcnow())).join(models.RSEFileAssociation.rse).group_by(models.RSE.rse)
-        print(a)
         for result in a.all():
             monitor.record_gauge(stat="rucio.judge.deletable_files.%s" %result[0], value=result[1])
             #Gauge('rucio_judge_deletable_files', '', registry=registry).set(result[1])
@@ -62,6 +61,3 @@ def main():
     except Exception as error:
         print('THE ERROR IS ',error)
         sys.exit(UNKNOWN)
-
-if __name__ == "__main__":
-    main()
