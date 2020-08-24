@@ -38,53 +38,55 @@ def main():
     status = OK
     session = get_session()
     try:
+        print('Locked expired rules')
         query = """select rawtohex(id), scope, name, rse_expression from {schema}rules 
                    where locked=1 and expires_at<sys_extract_utc(localtimestamp)""".format(schema=schema)
-        print('Locked expired rules')
         for row in session.execute(query):
             status = CRITICAL
             print(row[0], row[1], row[2])
+
+        print('Locked expired rule counts by RSE expression')
         query = (session.query(models.ReplicationRule.scope, models.ReplicationRule.rse_expression,
                                func.count(models.ReplicationRule.scope))
                  .filter(models.ReplicationRule.locked == 1, models.ReplicationRule.expires_at <= datetime.utcnow())
                  .group_by(models.ReplicationRule.scope, models.ReplicationRule.rse_expression))
-
         for row in query.all():
             print('judge.locked_expired_rules.%s.%s    %s' % (row[0], row[1], row[2]))
             monitor.record_gauge(stat='judge.locked_expired_rules.%s.%s' % (row[0], row[1]), value=row[2])
-
     except Exception as error:
         print(error)
         status = UNKNOWN
         sys.exit(status)
+
     try:
+        print('Datasets expired with locked rules')
         query = """select rawtohex(c.id), c.scope, c.name, c.rse_expression from {schema}rules c,
                    (select a.scope, a.name from {schema}dids a
                    where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
                    and exists (select 1 from {schema}rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
                    where c.scope=d.scope and c.name=d.name and locked=1""".format(schema=schema)
-        print('Datasets expired with locked rules')
         for row in session.execute(query):
             status = CRITICAL
             print(row[0], row[1], row[2], row[3])
+
+        print('Counts of datasets expired with locked rules')
         query = """select c.scope, c.rse_expression, count(*) from {schema}rules c,
                    (select a.scope, a.name from {schema}dids a
                    where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
                    and exists (select 1 from {schema}rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
                    where c.scope=d.scope and c.name=d.name and locked=1 
                    group by c.scope, c.rse_expression""".format(schema=schema)
-        print('Datasets expired with locked rules')
         for row in session.execute(query):
             status = CRITICAL
             print('judge.datasets_with_locked_rules.%s:%s    %s' % (row[0], row[1], row[2]))
             monitor.record_gauge(stat='judge.datasets_with_locked_rules.%s:%s' % (row[0], row[1]), value=row[2])
-
     except Exception as error:
         print(error)
         status = UNKNOWN
         sys.exit(status)
+
     sys.exit(status)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

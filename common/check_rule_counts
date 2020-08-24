@@ -38,19 +38,15 @@ from sqlalchemy import func
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 
     try:
         session = get_session()
-        utctime = datetime.datetime.utcnow()
-        utctimeInt = int(time.mktime(utctime.timetuple()))
-        timeEnd = utctimeInt
-        timezoneoffset = int((datetime.datetime.now() - datetime.datetime.utcnow()).seconds)
 
         # check rules
-
         state_map = {'REPLICATING': 'rules_replicating',
                      'OK': 'rules_ok',
+                     'INJECT': 'rules_injecting',
                      'STUCK': 'rules_stuck',
                      'SUSPENDED': 'rules_suspend',
                      'WAITING_APPROVAL': 'rules_waiting_approval', }
@@ -65,9 +61,9 @@ if __name__ == "__main__":
             monitor.record_gauge(stat='rules.count.%s' % (gauge_state), value=num)
 
         ages = {
-            'created_24hours_ago': datetime.timedelta(hours=24),
-            'created_1week_ago': datetime.timedelta(hours=168),
-            'created_3weeks_ago': datetime.timedelta(hours=672),
+            'created_24hours_ago': datetime.timedelta(days=1),
+            'created_1week_ago': datetime.timedelta(days=7),
+            'created_3weeks_ago': datetime.timedelta(days=21),
         }
 
         query = session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state != RuleState.OK)
@@ -76,35 +72,35 @@ if __name__ == "__main__":
 
         query = (session.query(func.sum(models.ReplicationRule.locks_stuck_cnt))
                         .filter(models.ReplicationRule.state == RuleState.STUCK))
-        result = query.one()[0] or 0
+        result = query.scalar() or 0
         print('rules.no_of_files.total.sum_locks_stuck_cnt %s' % (result))
         monitor.record_gauge(stat='rules.no_of_files.total.sum_locks_stuck_cnt', value=result)
 
         # check left replicating files
         query = (session.query(func.sum(models.ReplicationRule.locks_replicating_cnt))
                         .filter(models.ReplicationRule.state.in_([RuleState.STUCK, RuleState.REPLICATING])))
-        result = query.one()[0] or 0
+        result = query.scalar() or 0
 
         print('rules.no_of_files.total.sum_locks_replicating_cnt %s' % (result))
         monitor.record_gauge(stat='rules.no_of_files.total.sum_locks_replicating_cnt', value=result)
 
         # check stuck and replicating files which are more than X old
-        for aname, adelta in ages.items():
-            timeLimit = datetime.datetime.utcnow() - adelta
+        for a_name, a_delta in ages.items():
+            timeLimit = datetime.datetime.utcnow() - a_delta
 
             query = (session.query(func.sum(models.ReplicationRule.locks_stuck_cnt))
                             .filter(models.ReplicationRule.state == RuleState.STUCK)
                             .filter(models.ReplicationRule.created_at <= timeLimit))
-            result = query.one()[0] or 0
-            print('rules.no_of_files.stuck.%s.sum_locks_stuck_cnt %s' % (aname, result))
-            monitor.record_gauge(stat='rules.no_of_files.stuck.%s.sum_locks_stuck_cnt' % aname, value=result)
+            result = query.scalar() or 0
+            print('rules.no_of_files.stuck.%s.sum_locks_stuck_cnt %s' % (a_name, result))
+            monitor.record_gauge(stat='rules.no_of_files.stuck.%s.sum_locks_stuck_cnt' % a_name, value=result)
 
             query = (session.query(func.sum(models.ReplicationRule.locks_replicating_cnt))
                             .filter(models.ReplicationRule.state.in_([RuleState.STUCK, RuleState.REPLICATING]))
                             .filter(models.ReplicationRule.created_at <= timeLimit))
-            result = query.one()[0] or 0
-            print('rules.no_of_files.replicating.%s.sum_locks_replicating_cnt %s' % (aname, result))
-            monitor.record_gauge(stat='rules.no_of_files.replicating.%s.sum_locks_replicating_cnt' % aname,
+            result = query.scalar() or 0
+            print('rules.no_of_files.replicating.%s.sum_locks_replicating_cnt %s' % (a_name, result))
+            monitor.record_gauge(stat='rules.no_of_files.replicating.%s.sum_locks_replicating_cnt' % a_name,
                                  value=result)
     except:
         print(traceback.format_exc())
