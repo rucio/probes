@@ -6,7 +6,9 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015. Eric Vaandering, <ewv@fnal.gov> and Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2020. 
+# - Eric Vaandering, <ewv@fnal.gov> 2020.
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch> 2020.
 
 '''
 Probe to check the locked expired rules or datasets with locked rules
@@ -78,8 +80,6 @@ def main():
                     filter(models.DataIdentifier.expired_at < datetime.utcnow()).\
                         group_by(models.ReplicationRule.rse_expression)
         dids = sub_query.all()
-        print(dids)
-        print(sub_query)
         for did in dids:
             status = CRITICAL
             monitor.record_gauge(stat='rucio.datasets_with_locked_rules.%s' %did[1], value=did[0])
