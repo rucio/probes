@@ -24,6 +24,7 @@ from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from rucio.common.config import config_get
 from rucio.core import monitor
 from rucio.db.sqla import models
+from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
 
@@ -38,7 +39,7 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        query = session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state.is_('I'))
+        query = session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state == RuleState.INJECT)
         result = get_count(query)
 
         monitor.record_gauge(stat='judge.injecting_rules', value=result)

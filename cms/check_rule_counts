@@ -25,7 +25,6 @@ from __future__ import print_function
 
 import datetime
 import sys
-import time
 import traceback
 
 from rucio.core import monitor
@@ -53,7 +52,8 @@ if __name__ == '__main__':
 
         result = (session.query(models.ReplicationRule.state, func.count(models.ReplicationRule.state))
                          .group_by(models.ReplicationRule.state)
-                         .with_hint(models.ReplicationRule, 'INDEX_FFS(rules RULES_PK)', 'oracle').all())
+                         .with_hint(models.ReplicationRule, 'INDEX_FFS(rules RULES_PK)', 'oracle')
+                         .all())
 
         for state, num in result:
             gauge_state = state_map.get(repr(state), 'rules_' + repr(state).lower())
