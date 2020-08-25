@@ -6,7 +6,9 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2020. 
+# - Eric Vaandering, <ewv@fnal.gov> 2020.
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch> 2020.
 
 '''
 Probe to check the locked expired rules or datasets with locked rules
@@ -16,20 +18,21 @@ from __future__ import print_function
 
 import sys
 from datetime import datetime
-
 from rucio.core import monitor
+from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla import models
 from rucio.db.sqla.session import BASE, get_session
 from sqlalchemy import func
+from rucio.common.config import config_get
+from sqlalchemy.sql import exists
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if BASE.metadata.schema:
-    schema = BASE.metadata.schema + '.'
-else:
-    schema = ''
-
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
 
 def main():
     '''
@@ -69,17 +72,29 @@ def main():
             status = CRITICAL
             print(row[0], row[1], row[2], row[3])
 
-        print('Counts of datasets expired with locked rules')
-        query = """select c.scope, c.rse_expression, count(*) from {schema}rules c,
-                   (select a.scope, a.name from {schema}dids a
-                   where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
-                   and exists (select 1 from {schema}rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
-                   where c.scope=d.scope and c.name=d.name and locked=1 
-                   group by c.scope, c.rse_expression""".format(schema=schema)
-        for row in session.execute(query):
+            registry = CollectorRegistry()
+        sub_query = session.query(func.count(models.ReplicationRule.id),models.ReplicationRule.rse_expression).\
+            join(models.DataIdentifier, (models.ReplicationRule.scope == models.DataIdentifier.scope) 
+            & (models.ReplicationRule.name == models.DataIdentifier.name)).\
+                filter(models.ReplicationRule.locked == True).\
+                    filter(models.DataIdentifier.expired_at != None).\
+                    filter(models.DataIdentifier.expired_at < datetime.utcnow()).\
+                        group_by(models.ReplicationRule.rse_expression)
+        dids = sub_query.all()
+        for did in dids:
             status = CRITICAL
-            print('judge.datasets_with_locked_rules.%s:%s    %s' % (row[0], row[1], row[2]))
-            monitor.record_gauge(stat='judge.datasets_with_locked_rules.%s:%s' % (row[0], row[1]), value=row[2])
+            monitor.record_gauge(stat='rucio.datasets_with_locked_rules.%s' %did[1], value=did[0])
+            #Gauge('rucio_expired_locked_rules', '', registry=registry).set(did[0])
+
+
+        if len(PROM_SERVERS):
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_expired_locked_rules', registry=registry)
+                except:
+                    continue
+
+
     except Exception as error:
         print(error)
         status = UNKNOWN
