@@ -13,8 +13,6 @@ from __future__ import print_function
 
 from rucio.db.sqla.constants import RuleState
 import sys
-import traceback
-from datetime import datetime
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from rucio.common.config import config_get
 from rucio.core import monitor
