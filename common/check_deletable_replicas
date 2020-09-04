@@ -18,7 +18,6 @@ from __future__ import print_function
 import sys
 from rucio.db.sqla.constants import ReplicaState
 from sqlalchemy import or_
-import traceback
 from datetime import datetime
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from rucio.common.config import config_get
