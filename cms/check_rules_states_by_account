@@ -1,0 +1,80 @@
+#!/usr/bin/env python
+# Copyright 2012-2020 CERN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2021
+
+"""
+Probe that counts the number of stuck, replicating rules and waiting for approval rules, clasiffied by account.
+The accounts used to classify the rules are sotred in the accounts list.
+"""
+
+import sys
+
+from rucio.common.types import InternalAccount
+from rucio.db.sqla.constants import RuleState
+from rucio.common.config import config_get
+from rucio.core import monitor
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
+from rucio.db.sqla.util import get_count
+
+transfer_ops = InternalAccount('transfer_ops')
+wmcore_output = InternalAccount('wmcore_output')
+wma_prod = InternalAccount('wma_prod')
+wmcore_transferor = InternalAccount('wmcore_transferor')
+crab_tape_recall = InternalAccount('crab_tape_recall')
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+
+def main():
+    try:
+        accounts = ['transfer_ops', 'wmcore_output', 'wma_prod', 'wmcore_transferor', 'crab_tape_recall']
+        results = []
+        session = get_session()
+
+        # Check number of Stuck rules by transfer_ops account
+        for account in accounts:
+            _account = InternalAccount(account)
+            query = (session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state == RuleState.STUCK)
+                .filter(models.ReplicationRule.account == _account))
+            stuck = get_count(query)
+            query = (session.query(models.ReplicationRule.scope).filter(
+                models.ReplicationRule.state == RuleState.REPLICATING)
+                .filter(models.ReplicationRule.account == _account))
+            replicating = get_count(query)
+            query = (session.query(models.ReplicationRule.scope).filter(
+                models.ReplicationRule.state == RuleState.WAITING_APPROVAL)
+                .filter(models.ReplicationRule.account == _account))
+            # wfa = waiting for approval
+            wfa = get_count(query)
+            print('Number of stuck rules by ' + account + ' account', stuck)
+            print('Number of replicating rules by ' + account + ' account', replicating)
+            print('Number of waiting for approval rules by ' + account + ' account', wfa)
+            result = [account, stuck, replicating, wfa]
+            results.append(result)
+        for result in results:
+            monitor.record_gauge(stat='rucio.judge.stuck_rules_from_.%s' % (result[0]), value=result[1])
+            monitor.record_gauge(stat='rucio.judge.replicating_rules_from_.%s' % (result[0]), value=result[2])
+            monitor.record_gauge(stat='rucio.judge.wfa_rules_from_.%s' % (result[0]), value=result[3])
+    except Exception as error:
+        print('THE ERROR IS ', error)
+        sys.exit(UNKNOWN)(OK)
+
+
+if __name__ == '__main__':
+    main()
