@@ -44,10 +44,10 @@ if __name__ == "__main__":
             models.RSEFileAssociation.tombstone < datetime.utcnow())).join(models.RSEFileAssociation.rse).group_by(models.RSE.rse)
         print(a)
         for result in a.all():
-            monitor.record_gauge(stat="rucio.judge.deletable_files.%s" %result[0], value=result[1])
+            monitor.record_gauge(stat="rucio.judge.deletable_files.%s" % result[0], value=result[1])
             #Gauge('rucio_judge_deletable_files', '', registry=registry).set(result[1])
         for result in a.all():
-            monitor.record_gauge(stat="rucio.judge.deletable_space.%s" %result[0], value=result[2]/1000000000000.0)
+            monitor.record_gauge(stat="rucio.judge.deletable_space.%s" % result[0], value=result[2]/1000000000000.0)
             #Gauge('rucio_judge_deletable_space', '', registry=registry).set(result[2]/1000000000000)
         
         if len(PROM_SERVERS):
