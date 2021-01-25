@@ -46,7 +46,7 @@ if __name__ == "__main__":
         print('Number of missing files per RSE')
         for rse, num in result:
             status = CRITICAL
-            monitor.record_gauge(stat='judge.number_of_missing_files.%s' %rse, value=num)
+            monitor.record_gauge(stat='judge.number_of_missing_files.%s' % rse, value=num)
             print(rse,num)
         query = (session.query(models.RSE.rse, func.count(models.Request.id)))
         .with_hint(models.Request, "index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)")
@@ -58,7 +58,7 @@ if __name__ == "__main__":
         print('Number of replicating files per RSE')
         for rse, num in result:
             status = CRITICAL
-            monitor.record_gauge(stat='judge.number_of_replicating_files.%s' %rse, value=num)
+            monitor.record_gauge(stat='judge.number_of_replicating_files.%s' % rse, value=num)
             print(rse,num)
     except Exception as error:
         print(error)
