@@ -11,6 +11,7 @@
 # - Mario Lassnig, <mario.lassnig@cern.ch>, 2014
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
 # - David Cameron, <david.cameron@cern.ch>, 2015
+# - Dimitrios Christidis, <dimitrios.christidis@cern.ch>, 2021
 
 import json
 import os.path
@@ -72,7 +73,7 @@ if __name__ == '__main__':
         except RSENotFound as error:
             print error
             continue
-        if rse['type'] in ['OS_ES', 'OS_LOGS']:
+        if rse['type'] in ['OS_ES', 'OS_LOGS', 'OS_CACHE']:
             print 'This is a Object store endpoint. Skipping the protocols'
             priority = {}
             for activity in rse['arprotocols']:

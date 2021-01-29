@@ -11,6 +11,7 @@
 # - David Cameron, <david.cameron@cern.ch>, 2015
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2015
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2016-2019
+# - Dimitrios Christidis, <dimitrios.christidis@cern.ch>, 2021
 #
 #
 # Set quotas for physgroups
@@ -187,8 +188,19 @@ def set_localgroupdisk_quotas(fraction, absolute):
     default_values = {}
 
     try:
-        query = '''select atlas_rucio.id2rse(rse_id), value from atlas_rucio.rses a, atlas_rucio.rse_attr_map b
-                   where a.id=b.rse_id and b.key='country' and a.rse like '%LOCALGROUPDISK' and a.deleted!=1'''
+        query = '''SELECT
+                       A.rse,
+                       C.value
+                   FROM atlas_rucio.rses A
+                   JOIN atlas_rucio.rse_attr_map B
+                   ON A.id = B.rse_id
+                   JOIN atlas_rucio.rse_attr_map C
+                   ON B.rse_id = C.rse_id
+                   WHERE
+                       A.deleted <> 1
+                       AND (B.key = 'type' AND B.value = 'LOCALGROUPDISK')
+                       AND C.key = 'country'
+                   '''
         result = session.execute(query)
         for rse, country in result:
             if country not in dict_sites:
@@ -219,11 +231,31 @@ def set_localgroupdisk_quotas(fraction, absolute):
         accounts = {}
         try:
             country_short = country.split('-')[1]
-            query = '''select account, atlas_rucio.id2rse(rse_id), bytes from atlas_rucio.account_limits where
-                       account in (select c.account from atlas_rucio.account_attr_map c, atlas_rucio.accounts d where d.status='ACTIVE'
-                       and c.account=d.account and key='%s')
-                       and rse_id in (select id from atlas_rucio.rses a, atlas_rucio.rse_attr_map b
-                       where a.id=b.rse_id and b.key='country' and b.value='%s' and a.rse like '%%LOCALGROUPDISK') ''' % (country, country_short)
+            query = '''SELECT
+                           account,
+                           atlas_rucio.id2rse(rse_id),
+                           bytes
+                       FROM atlas_rucio.account_limits
+                       WHERE
+                           account IN (
+                               SELECT C.account
+                               FROM atlas_rucio.accounts C
+                               JOIN atlas_rucio.account_attr_map D
+                               ON C.account = D.account
+                               WHERE
+                                   C.status = 'ACTIVE'
+                                   AND D.key = '%s'
+                           )
+                           AND rse_id IN (
+                               SELECT A.rse_id
+                               FROM atlas_rucio.rse_attr_map A
+                               JOIN atlas_rucio.rse_attr_map B
+                               ON A.rse_id = B.rse_id
+                               WHERE
+                                   (A.key = 'country' AND A.value = '%s')
+                                   AND (B.key = 'type' AND B.value = 'LOCALGROUPDISK')
+                           )
+                       ''' % (country, country_short)
             result = session.execute(query)
             for account, rse, bytes_size in result:
                 if account not in accounts:
