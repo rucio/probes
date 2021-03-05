@@ -1,21 +1,31 @@
 #!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+# Copyright 2012-2020 CERN
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2015
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2021
 
 '''
-Probe to check the min free space.
+Probe to check the free space at each rse.
 '''
 
 import sys
 import traceback
-
-from rucio.core.rse import list_rses, get_rse_limits, set_rse_usage
+from rucio.core import monitor
+from rucio.core.rse import list_rses, get_rse_usage
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -23,13 +33,23 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 if __name__ == "__main__":
     try:
-
         for rse in list_rses():
-            limits = get_rse_limits(rse=rse['rse'], rse_id=rse['id'])
-            min_free_space = limits.get('MinFreeSpace')
-            if min_free_space is not None:
-                # print rse['rse'], min_free_space
-                set_rse_usage(rse=rse['rse'], source='min_free_space', used=min_free_space, free=None)
+            limits = get_rse_usage(rse['id'])
+            rucio_used = None
+            static_used = None
+            for usage in limits:
+                if usage['source'] == 'rucio':
+                    print('RUCIO_USED' , usage['used'])
+                    rucio_used = usage['used']
+                if usage['source'] == 'static':
+                    print('STATIC_USED' , usage['used'])
+                    static_used = usage['used']
+            if (rucio_used == None) or ( static_used == None ):
+                free_space = None
+            else:
+                 free_space = int(static_used) - int(rucio_used)
+            print(rse['rse'], free_space)
+            monitor.record_gauge(stat='judge.free_space.%s' %rse['rse'], value=free_space)
     except:
         print (traceback.format_exc())
         sys.exit(UNKNOWN)
