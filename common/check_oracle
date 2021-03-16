@@ -14,6 +14,7 @@
 """
 Probe to check Oracle.
 """
+from __future__ import print_function
 
 import sys
 
@@ -32,7 +33,7 @@ if __name__ == "__main__":
         user = config_get('database', 'powuseraccount', raise_exception=False, default=None)
         password = config_get('database', 'powuserpassword', raise_exception=False, default=None)
     except:
-        print 'Cannot get DB parameters'
+        print('Cannot get DB parameters')
         sys.exit(CRITICAL)
 
     if not (user and password):
@@ -41,7 +42,7 @@ if __name__ == "__main__":
             up = upp.split('://')[1]            # user:password
             user, password = up.split(':')
         except:
-            print 'Cannot guess DB parameters'
+            print('Cannot guess DB parameters')
             sys.exit(CRITICAL)
 
     dsn = sql_connection.split('@')[1]
@@ -62,7 +63,7 @@ ORDER BY inst_id, mname.metric_name, mname.metric_unit'''
         cursor.execute(query)
         for (metric, value) in cursor:
             m = 'oracle.%s' % metric.replace(' ', '_')
-            print m, value, ' ',
+            print(m, value, ' ')
             monitor.record_gauge(stat=m, value=value)
     except:
         sys.exit(UNKNOWN)
