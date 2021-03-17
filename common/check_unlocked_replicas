@@ -12,6 +12,7 @@
 """
 Probe to check the backlog of unlocked replicas.
 """
+from __future__ import print_function
 
 import sys
 
@@ -51,7 +52,7 @@ if __name__ == "__main__":
         result = session.execute(unlocked_sql).fetchone()[0]
         monitor.record_gauge(stat='reaper.unlocked_replicas', value=result)
         Gauge('reaper_unlocked_replicas', '', registry=registry).set(result)
-        print result
+        print(result)
         expired_sql = 'select  /*+ index_ffs(replicas REPLICAS_TOMBSTONE_IDX) */  count(1) from {schema}replicas where tombstone is not null and tombstone < sysdate - 2/24'.format(schema=schema)
         result = session.execute(expired_sql).fetchone()[0]
         monitor.record_gauge(stat='reaper.expired_replicas', value=result)

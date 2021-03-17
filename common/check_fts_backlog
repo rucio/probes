@@ -12,11 +12,14 @@
  - Eric Vaandering, <ewv@fnal.gov>, 2019
  - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 """
-
+from __future__ import print_function
 import os
 import sys
-from urlparse import urlparse
 import urllib3
+try:
+    from urlparse import urlparse
+except ImportError:
+    from urllib.parse import urlparse
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 import requests
@@ -63,14 +66,14 @@ if __name__ == "__main__":
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
     except Exception as error:
-        print "Failed to get proxy from rucio.cfg"
+        print("Failed to get proxy from rucio.cfg")
         PROXY = '/opt/rucio/etc/ddmusr01.rfc.proxy'
         WORST_RETVALUE = WARNING
 
     try:
         FTSHOSTS = config_get('conveyor', 'ftsmonhosts')
     except Exception as error:
-        print "Failed to get ftsmonhosts"
+        print("Failed to get ftsmonhosts")
         FTSHOSTS = []
         WORST_RETVALUE = WARNING
 
@@ -90,7 +93,7 @@ if __name__ == "__main__":
         url = '%s/fts3/ftsmon/overview?dest_se=&source_se=&time_window=1&vo=%s' % (ftshost, VO)
         busy_channels = []
         busylimit = 5000
-        for attempt in xrange(0, 5):
+        for attempt in range(0, 5):
             result = None
             try:
                 result = requests.get(url, verify=False, cert=(PROXY, PROXY))
@@ -125,16 +128,16 @@ if __name__ == "__main__":
                                               'activities': activities})
                 summary = res['summary']
                 hostname = hostname.replace('.', '_')
-                print '%s : Submitted : %s' % (hostname, summary['submitted'])
-                print '%s : Active : %s' % (hostname, summary['active'])
-                print '%s : Staging : %s' % (hostname, summary['staging'])
-                print '%s : Started : %s' % (hostname, summary['started'])
+                print('%s : Submitted : %s' % (hostname, summary['submitted']))
+                print('%s : Active : %s' % (hostname, summary['active']))
+                print('%s : Staging : %s' % (hostname, summary['staging']))
+                print('%s : Started : %s' % (hostname, summary['started']))
                 if busy_channels != []:
                     print('Busy channels (>%s submitted):' % busylimit)
                     for bc in busy_channels:
                         activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
-                        print '  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
-                                                                       str(activities_str))
+                        print('  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
+                                                                       str(activities_str)))
                 monitor.record_gauge(stat='fts3.%s.submitted' % hostname,
                                      value=(summary['submitted'] + summary['active']
                                             + summary['staging'] + summary['started']))

@@ -12,6 +12,7 @@
 """
 Probe to check the backlog of dids waiting for rule evaluation.
 """
+from __future__ import print_function
 
 import sys
 
@@ -51,7 +52,7 @@ if __name__ == "__main__":
                 except:
                     continue
 
-        print result
+        print(result)
     except:
         sys.exit(UNKNOWN)
     sys.exit(OK)
