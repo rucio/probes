@@ -39,9 +39,11 @@ if __name__ == '__main__':
             attributes = list_rse_attributes(rse['id'])
             country = attributes.get('country', 'UNKNOWN')
             rse_type = session.query(models.RSE.rse_type).filter(models.RSE.id == rse['id']).scalar()
+            rse_type = str(rse_type).split(".", 1)[1]
             for usage in sources:
                 source = usage['source']
-                monitor.record_gauge(stat='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source), value=usage['used'])
+                monitor.record_gauge(stat='judge.space_used_in.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source),
+                                     value=usage['used'])
                 print(rse['rse'], country, rse_type, source, usage['used'])
     except:
         print (traceback.format_exc())
