@@ -36,22 +36,22 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 if __name__ == '__main__':
     try:
         for rse in list_rses():
-            limits = get_rse_usage(rse['rse'], issuer = 'transfer_ops')
+            limits = get_rse_usage(rse['rse'], issuer='transfer_ops')
             rucio_used = None
             static_used = None
             for usage in limits:
                 if usage['source'] == 'rucio':
-                    print('RUCIO_USED' , usage['used'])
+                    print('RUCIO_USED', usage['used'])
                     rucio_used = usage['used']
                 if usage['source'] == 'static':
-                    print('STATIC_USED' , usage['used'])
+                    print('STATIC_USED', usage['used'])
                     static_used = usage['used']
-            if (rucio_used is None) or ( static_used is None ):
+            if (rucio_used is None) or (static_used is None):
                 free_space = None
             else:
-                 free_space = int(static_used) - int(rucio_used)
-            print(rse['rse'], free_space)
-            monitor.record_gauge(stat='judge.free_space.%s' %rse['rse'], value=free_space)
+                free_space = int(static_used) - int(rucio_used)
+                print(rse['rse'], free_space)
+                monitor.record_gauge(stat='judge.free_space.%s' % rse['rse'], value=free_space)
     except:
         print (traceback.format_exc())
         sys.exit(UNKNOWN)
