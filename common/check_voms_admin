@@ -146,7 +146,9 @@ if __name__ == '__main__':
             phys_group = match_pattern.group(1)
             dns = {}
             print 'Working on group-%s' % (phys_group)
-            list_dns = admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or []
+            list_dns = []
+            list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or [])
+            list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=Group-Manager') or [])
             for dn in list_dns:
                 dns[dn._DN] = 'group-%s:admin' % (phys_group)
             set_account_attributes(dns)
@@ -160,7 +162,9 @@ if __name__ == '__main__':
         print 'Working on country-%s' % (country)
         dns = {}
         # Get DNs in country group
-        list_dns = admin.call_method('list-members', vomsgroup) or []
+        list_dns = []
+        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or [])
+        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=Group-Manager') or [])
         for dn in list_dns:
             dns[dn._DN] = 'country-%s:user' % (country)
 
