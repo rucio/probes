@@ -1,0 +1,11 @@
+# Code owner specification for Rucio probes
+#
+# Please consult the contribution guide for general contribution guidelines https://rucio.cern.ch/documentation/contributing
+
+*                     @dchristidis
+
+# CMS Probes
+/cms/                 @ericvaandering
+
+# Common Probes
+/common/              @dchristidis
