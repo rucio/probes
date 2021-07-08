@@ -43,9 +43,9 @@ if __name__ == '__main__':
         used_space_gauge = Gauge('judge_used_space_rucio_per_RSE_per_Account',
             '', labelnames=('rse', 'account'), registry=registry)
         dynamic_gauge = Gauge('judge_Dynamic_space_at',
-            '', labelnames=('rse'), registry=registry)
+            '', labelnames=('rse',), registry=registry)
         locked_gauge = Gauge('judge_Locked_space_at',
-            '', labelnames=('rse'), registry=registry)
+            '', labelnames=('rse',), registry=registry)
         for rse in list_rses():
             sources = get_rse_usage(rse['id'], per_account=True)
             for usage in sources:
