@@ -40,12 +40,12 @@ if __name__ == '__main__':
     try:
         registry = CollectorRegistry()
         session = get_session()
-        g1 = Gauge('judge_used_space_rucio_per_RSE_per_Account'
-                   , '', labelnames=('rse', 'account'), registry=registry)
-        g2 = Gauge('judge_Dynamic_space_at'
-                   , '', labelnames=('rse'), registry=registry)
-        g3 = Gauge('judge_Locked_space_at'
-                   , '', labelnames=('rse'), registry=registry)
+        used_space_gauge = Gauge('judge_used_space_rucio_per_RSE_per_Account',
+            '', labelnames=('rse', 'account'), registry=registry)
+        dynamic_gauge = Gauge('judge_Dynamic_space_at',
+            '', labelnames=('rse'), registry=registry)
+        locked_gauge = Gauge('judge_Locked_space_at',
+            '', labelnames=('rse'), registry=registry)
         for rse in list_rses():
             sources = get_rse_usage(rse['id'], per_account=True)
             for usage in sources:
@@ -54,7 +54,7 @@ if __name__ == '__main__':
                     for dicti in usage['account_usages']:
                         account = dicti.get('account')
                         used = dicti.get('used')
-                        g1.labels(**{'rse': rse['rse'], 'account': account}).set(used)
+                        used_space_gauge.labels(**{'rse': rse['rse'], 'account': account}).set(used)
                         print(rse['rse'], account, used)
                 if usage['source'] == 'expired':
                     expired = usage['used']
@@ -62,8 +62,8 @@ if __name__ == '__main__':
                     obsolete = usage['used']
             locked = rucio - expired
             dynamic = expired - obsolete
-            g2.labels(**{'rse': rse['rse']}).set(dynamic)
-            g3.labels(**{'rse': rse['rse']}).set(locked)
+            dynamic_gauge.labels(**{'rse': rse['rse']}).set(dynamic)
+            locked_gauge.labels(**{'rse': rse['rse']}).set(locked)
         print(rse['rse'], 'LOCKED', locked)
         print(rse['rse'], 'DYNAMIC', dynamic)
         if len(PROM_SERVERS):
