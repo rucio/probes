@@ -68,17 +68,26 @@ if __name__ == '__main__':
         print("Failed to load info from AGIS: %s" % str(error))
         sys.exit(WARNING)
 
+    SERVICE_SITE_MAPPING = {}
+    for rse in DATA:
+        site = rse['site']
+        service = rse['resource']['service']
+        SERVICE_SITE_MAPPING[service] = site
+
     INTERNAL_PROXY_MAPPING = {}
     URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&state=ACTIVE'
     try:
         RESP = requests.get(url=URL)
         DIC = json.loads(RESP.content)
-        for rse in DIC:
-            for service in DIC[rse]:
-                if 'protocols' in DIC[rse][service]:
-                    for protocol in DIC[rse][service]['protocols']:
-                        if DIC[rse][service]['protocols'][protocol]['doortype'] == 'proxyinternal':
-                            INTERNAL_PROXY_MAPPING[rse] = DIC[rse][service]['protocols'][protocol]['endpoint']
+        for rc_site in DIC:
+            for service in DIC[rc_site]:
+                if service not in SERVICE_SITE_MAPPING:
+                    continue
+                if 'protocols' in DIC[rc_site][service]:
+                    for protocol in DIC[rc_site][service]['protocols']:
+                        if DIC[rc_site][service]['protocols'][protocol]['doortype'] == 'proxyinternal':
+                            site = SERVICE_SITE_MAPPING[service]
+                            INTERNAL_PROXY_MAPPING[site] = DIC[rc_site][service]['protocols'][protocol]['endpoint']
     except Exception as error:
         print("Failed to load info from AGIS: %s" % str(error))
         sys.exit(WARNING)

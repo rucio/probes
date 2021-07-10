@@ -59,26 +59,40 @@ if __name__ == '__main__':
         for site, host in res:
             xcaches_in_rucio[site] = host
 
-        SE_URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&type=SE&state=ACTIVE'
+        URL = 'http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json&state=ACTIVE&site_state=ACTIVE'
         try:
-            SE_RESP = requests.get(SE_URL)
-            SE_DATA = json.loads(SE_RESP.content)
+            RESP = requests.get(url=URL)
+            DATA = json.loads(RESP.content)
         except Exception as error:
-            print("Failed to load SE info from AGIS: %s" % str(error))
+            print("Failed to load info from AGIS: %s" % str(error))
             sys.exit(WARNING)
 
-        xcaches_in_agis = []
+        SERVICE_SITE_MAPPING = {}
+        for rse in DATA:
+            site = rse['site']
+            service = rse['resource']['service']
+            SERVICE_SITE_MAPPING[service] = site
 
-        for rc_site in SE_DATA:
-
-            for se in SE_DATA[rc_site]:
-
-                for protocol in SE_DATA[rc_site][se]['protocols']:
-
-                    # find all active internal proxies (==xcaches_in_agis)
-                    if SE_DATA[rc_site][se]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
-                       SE_DATA[rc_site][se]['protocols'][protocol]['state'] == 'ACTIVE':
-                        xcaches_in_agis.append((rc_site, SE_DATA[rc_site][se]['protocols'][protocol]['endpoint']))
+        INTERNAL_PROXY_MAPPING = {}
+        URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&state=ACTIVE'
+        try:
+            RESP = requests.get(url=URL)
+            DIC = json.loads(RESP.content)
+            for rc_site in DIC:
+                for service in DIC[rc_site]:
+                    if service not in SERVICE_SITE_MAPPING:
+                        continue
+                    if 'protocols' not in DIC[rc_site][service]:
+                        continue
+                    for protocol in DIC[rc_site][service]['protocols']:
+                        # find all active internal proxies (==xcaches_in_agis)
+                        if SE_DATA[rc_site][service]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
+                           SE_DATA[rc_site][service]['protocols'][protocol]['state'] == 'ACTIVE':
+                            site = SERVICE_SITE_MAPPING[service]
+                            xcaches_in_agis.append((site, SE_DATA[rc_site][service]['protocols'][protocol]['endpoint']))
+        except Exception as error:
+            print("Failed to load info from AGIS: %s" % str(error))
+            sys.exit(WARNING)
 
         print('Setting values in Rucio from AGIS:')
         for xcache in xcaches_in_agis:
