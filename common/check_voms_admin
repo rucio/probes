@@ -162,14 +162,14 @@ if __name__ == '__main__':
         print 'Working on country-%s' % (country)
         dns = {}
         # Get DNs in country group
-        list_dns = []
-        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or [])
-        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=Group-Manager') or [])
+        list_dns = admin.call_method('list-members', vomsgroup) or []
         for dn in list_dns:
             dns[dn._DN] = 'country-%s:user' % (country)
 
         # Get DNs with production role in each country (upgrades the role from user to admin if applicable)
-        list_dns = admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or []
+        list_dns = []
+        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=production') or [])
+        list_dns.extend(admin.call_method('list-users-with-role', vomsgroup, 'Role=Group-Manager') or [])
         for dn in list_dns:
             dns[dn._DN] = 'country-%s:admin' % (country)
         set_account_attributes(dns)
