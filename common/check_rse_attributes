@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 del_rse_attribute(name, 'root-proxy-internal', session=session)
 
             if name in SCRATCHDISK_WITHOUT_SPACE:
-                add_rse_attribute(name, 'notforextracopy', 1, session=session)
+                add_rse_attribute(name, 'notforextracopy', True, session=session)
             elif name in NOT_FOR_EXTRA_COPY:
                 print('Will remove notforextracopy for site %s' % rse['name'])
                 del_rse_attribute(name, 'notforextracopy', session=session)
