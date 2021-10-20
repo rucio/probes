@@ -6,7 +6,7 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2015
+# - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2021
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014
 # - Wen Guan, <wen.guan@cern.ch>, 2015
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
@@ -46,6 +46,7 @@ CASE
  WHEN state = 'O' THEN 'queues.requests.onlytapesources.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  WHEN state = 'A' THEN 'queues.requests.submissionfailed.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  WHEN state = 'U' THEN 'queues.requests.suspend.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
+ WHEN state = 'P' THEN 'queues.requests.preparing.' || replace(activity, ' ', '_') || '.' || nvl(replace(substr(external_host, 9, length(external_host)-13), '.', '_'), 'no_fts_host')
  ELSE state
 END state_desc,
 num_rows
