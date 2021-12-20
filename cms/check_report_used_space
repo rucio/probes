@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2012-2020 CERN
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,22 +16,42 @@
 # Authors:
 # - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
 # - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2021
 
-'''
+"""
 Probe to check used space.
-'''
+"""
 
+import json
 import sys
 import traceback
+
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from rucio.common.config import config_get
 from rucio.core import monitor
 from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
+else:
+    PROM_SERVERS = None
+
+prom_labels_config = config_get('monitor', 'prometheus_labels', raise_exception=False, default='{}')
+extra_prom_labels = json.loads(prom_labels_config)
+
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 if __name__ == '__main__':
+    registry = CollectorRegistry()
+    labelnames = ['rse', 'country', 'rse_type', 'source']
+    labelnames.extend(extra_prom_labels.keys())
+    used_space_gauge = Gauge('rucio_report_used_space', 'Space used at an RSE from various sources',
+                             labelnames=labelnames, registry=registry)
+
     try:
         session = get_session()
         for rse in list_rses():
@@ -42,8 +62,20 @@ if __name__ == '__main__':
             rse_type = str(rse_type).split('.', 1)[1]
             for usage in sources:
                 source = usage['source']
-                monitor.record_gauge(stat='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source), value=usage['used'])
+                prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
+                prom_labels.update(extra_prom_labels)
+                used_space_gauge.labels(**prom_labels).set(usage['used'])
+                monitor.record_gauge(
+                    name='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source),
+                    value=usage['used'])
                 print(rse['rse'], country, rse_type, source, usage['used'])
+        if PROM_SERVERS:
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_report_used_space', registry=registry)
+                except:
+                    continue
+
     except:
         print (traceback.format_exc())
         sys.exit(UNKNOWN)
