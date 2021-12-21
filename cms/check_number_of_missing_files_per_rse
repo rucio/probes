@@ -48,13 +48,13 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 if __name__ == '__main__':
     registry = CollectorRegistry()
-    labelnames = ['rse']
+    labelnames = ['dst_rse']
     labelnames.extend(extra_prom_labels.keys())
     missing_files_gauge = Gauge('rucio_judge_number_of_missing_files','Number of missing files in a RSE',
                              labelnames=labelnames, registry=registry)
     replicating_files_gauge = Gauge('rucio_judge_number_of_replicating_files', 'Number of files being replicated to a RSE',
                                 labelnames=labelnames, registry=registry)
-    #status = OK
+    status = OK
 
     try:
         session = get_session()
@@ -68,19 +68,14 @@ if __name__ == '__main__':
         print('Number of missing files per RSE')
         for rse, num in results:
             #print(type(rse), rse, type(num), num)
-            prom_labels = {'rse': rse}
+            prom_labels = {'dst_rse': rse}
             prom_labels.update(extra_prom_labels)
             missing_files_gauge.labels(**prom_labels).set(num)
             monitor.record_gauge(
                 name='judge.number_of_missing_files.%s' % rse,
                 value=num)
             #print(rse, num)
-        if PROM_SERVERS:
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_number_of_missing_files', registry=registry)
-                except:
-                    continue
+
         query = (session.query(models.RSE.rse, func.count(models.Request.id))
         .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
         .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
@@ -90,7 +85,7 @@ if __name__ == '__main__':
         results = query.all()
         print('Number of replicating files per RSE')
         for rse, num in results:
-            prom_labels = {'rse': rse}
+            prom_labels = {'dst_rse': rse}
             prom_labels.update(extra_prom_labels)
             replicating_files_gauge.labels(**prom_labels).set(num)
             monitor.record_gauge(
@@ -99,7 +94,7 @@ if __name__ == '__main__':
         if PROM_SERVERS:
             for server in PROM_SERVERS:
                 try:
-                    push_to_gateway(server.strip(), job='check_number_of_replicating_files', registry=registry)
+                    push_to_gateway(server.strip(), job='check_number_of_missing_files', registry=registry)
                 except:
                     continue
             #print(rse,num)
