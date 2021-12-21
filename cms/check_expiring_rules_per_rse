@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) 2013
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2021
+
+"""
+Probe to check the number of expiring rules.
+"""
+import json
+import sys
+import traceback
+
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from rucio.common.config import config_get
+from rucio.db.sqla.session import BASE, get_session
+
+PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+if PROM_SERVERS != '':
+    PROM_SERVERS = PROM_SERVERS.split(',')
+else:
+    PROM_SERVERS = None
+
+prom_labels_config = config_get('monitor', 'prometheus_labels', raise_exception=False, default='{}')
+extra_prom_labels = json.loads(prom_labels_config)
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
+if __name__ == "__main__":
+    registry = CollectorRegistry()
+    labelnames = ['dst_rse']
+    labelnames.extend(extra_prom_labels.keys())
+    expiring_gauge = Gauge('rucio_judge_expiring_rules_number', 'Rucio expiring rules per RSE',
+                           labelnames=labelnames, registry=registry)
+
+    try:
+        session = get_session()
+        sql = 'SELECT rse_expression, count(*) from {schema}RULES where expires_at is not null group by rse_expression'.format(
+            schema=schema)
+        result = session.execute(sql).fetchall()
+        for rse, count_files in result:
+            prom_labels = {'dst_rse': rse}
+            prom_labels.update(extra_prom_labels)
+            expiring_gauge.labels(**prom_labels).set(count_files)
+        if PROM_SERVERS:
+            for server in PROM_SERVERS:
+                try:
+                    push_to_gateway(server.strip(), job='check_expiring_rules_per_rse', registry=registry)
+                except:
+                    continue
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)
+    sys.exit(OK)
