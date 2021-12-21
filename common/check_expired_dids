@@ -42,7 +42,7 @@ if __name__ == "__main__":
         result = get_count(query)
         # Possible check against a threshold. If result > max_value then sys.exit(CRITICAL)
 
-        monitor.record_gauge(stat='undertaker.expired_dids', value=result)
+        monitor.record_gauge('undertaker.expired_dids', value=result)
         Gauge('undertaker_expired_dids', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
