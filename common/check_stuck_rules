@@ -7,7 +7,7 @@
 #
 # Authors:
 # - Martin Barisits, <martin.barisits@cern.ch>, 2014
-# - Eric Vaandering, <ewv@fnal.gov>, 2019
+# - Eric Vaandering, <ewv@fnal.gov>, 2019-2021
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 
 """
@@ -42,13 +42,13 @@ if __name__ == "__main__":
         sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)'.format(
             schema=schema)
         result = session.execute(sql).fetchone()[0]
-        monitor.record_gauge(stat='judge.stuck_rules_without_missing_source_replica', value=result)
+        monitor.record_gauge('judge.stuck_rules_without_missing_source_replica', value=result)
         Gauge('judge_stuck_rules_without_missing_source_replica', '', registry=registry).set(result)
 
         sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and error =\'MissingSourceReplica\''.format(
             schema=schema)
         result = session.execute(sql).fetchone()[0]
-        monitor.record_gauge(stat='judge.stuck_rules_with_missing_source_replica', value=result)
+        monitor.record_gauge('judge.stuck_rules_with_missing_source_replica', value=result)
         Gauge('judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
