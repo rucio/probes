@@ -8,7 +8,7 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
-# - Eric Vaandering <ewv@fnal.gov>, 2020
+# - Eric Vaandering <ewv@fnal.gov>, 2020-2021
 
 """
 Probe to check the backlog of updated dids.
@@ -38,7 +38,7 @@ if __name__ == "__main__":
         session = get_session()
         query = session.query(models.UpdatedDID)
         result = get_count(query)
-        monitor.record_gauge(stat='judge.updated_dids', value=result)
+        monitor.record_gauge('judge.updated_dids', value=result)
         Gauge('judge_updated_dids', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
