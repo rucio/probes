@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright European Organization for Nuclear Research (CERN) 2013
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -8,10 +8,12 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
+# - Eric Vaandering, <ewv@fnal.gov>, 2020-2021
 
-'''
+"""
 Probe to check the backlog of expired rules.
-'''
+"""
+
 import sys
 import traceback
 
@@ -39,11 +41,11 @@ if __name__ == "__main__":
         session = get_session()
         expired_rules = 'select count(1) from {schema}rules where expires_at < sys_extract_utc(localtimestamp)'.format(schema=schema)
         result = session.execute(expired_rules).fetchone()[0]
-        monitor.record_gauge(stat='judge.expired_rules', value=result)
+        monitor.record_gauge('judge.expired_rules', value=result)
         Gauge('judge_expired_rules', '', registry=registry).set(result)
         lifetimed_rules = 'select count(1) from {schema}rules where expires_at > sys_extract_utc(localtimestamp)'.format(schema=schema)
         result = session.execute(lifetimed_rules).fetchone()[0]
-        monitor.record_gauge(stat='judge.lifetimed_rules', value=result)
+        monitor.record_gauge('judge.lifetimed_rules', value=result)
         Gauge('judge_lifetimed_rules', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
@@ -53,8 +55,8 @@ if __name__ == "__main__":
                 except:
                     continue
 
-        print result
+        print(result)
     except:
-        print traceback.format_exc()
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
