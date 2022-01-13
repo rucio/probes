@@ -9,7 +9,7 @@
  Authors:
  - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
  - Mario Lassnig, <mario.lassnig@cern.ch>, 2015
- - Eric Vaandering, <ewv@fnal.gov>, 2019
+ - Eric Vaandering, <ewv@fnal.gov>, 2019-2021
  - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 """
 from __future__ import print_function
@@ -138,7 +138,7 @@ if __name__ == "__main__":
                         activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
                         print('  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
                                                                        str(activities_str)))
-                monitor.record_gauge(stat='fts3.%s.submitted' % hostname,
+                monitor.record_gauge('fts3.%s.submitted' % hostname,
                                      value=(summary['submitted'] + summary['active']
                                             + summary['staging'] + summary['started']))
                 g.labels(**{'hostname': hostname}).set((summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
