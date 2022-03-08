@@ -8,7 +8,7 @@
 #
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013-2014
-# - Mario Lassnig, <mario.lassnig@cern.ch>, 2014
+# - Mario Lassnig, <mario.lassnig@cern.ch>, 2014-2022
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
 # - David Cameron, <david.cameron@cern.ch>, 2015
 # - Dimitrios Christidis, <dimitrios.christidis@cern.ch>, 2021
@@ -168,13 +168,13 @@ if __name__ == '__main__':
                     elif o.scheme in ('davs', 'dav'):
                         extended_attributes = None
                         if rse['is_mkdir'] is True:
-                            impl = 'rucio.rse.protocols.gfalv2.Default'
+                            impl = 'rucio.rse.protocols.gfal.NoRename'
                         else:
                             impl = 'rucio.rse.protocols.gfal.Default'
 
                     elif o.scheme in ('https', 'http'):
                         extended_attributes = None
-                        impl = 'rucio.rse.protocols.gfalv2.Default'
+                        impl = 'rucio.rse.protocols.gfal.NoRename'
                     elif o.scheme == 'gsiftp':
                         extended_attributes = None
                         impl = 'rucio.rse.protocols.gfal.Default'
