@@ -103,7 +103,6 @@ if __name__ == '__main__':
 
     # Count Rules in x state
             gauge_state = state_map.get(str(state.name), 'rules_' + str(state.name).lower())
-            #gauge_state = gauge_state.replace("<", "").replace(">", "").split(':')[0]
             print('rules.count.%s %s' % (gauge_state, num))
 
             prom_labels = {'state': gauge_state}
