@@ -22,25 +22,18 @@
 Probe to check used space.
 """
 
-import json
 import sys
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from rucio.common.config import config_get
+from prometheus_client import CollectorRegistry, Gauge
 from rucio.core import monitor
 from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
-else:
-    PROM_SERVERS = None
+from utils import common
 
-prom_labels_config = config_get('monitor', 'prometheus_labels', raise_exception=False, default='{}')
-extra_prom_labels = json.loads(prom_labels_config)
+PrometheusPusher = common.PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -48,34 +41,32 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 if __name__ == '__main__':
     registry = CollectorRegistry()
     labelnames = ['rse', 'country', 'rse_type', 'source']
-    labelnames.extend(extra_prom_labels.keys())
-    used_space_gauge = Gauge('rucio_report_used_space', 'Space used at an RSE from various sources',
-                             labelnames=labelnames, registry=registry)
 
     try:
         session = get_session()
-        for rse in list_rses():
-            sources = get_rse_usage(rse['id'])
-            attributes = list_rse_attributes(rse['id'])
-            country = attributes.get('country', 'UNKNOWN')
-            rse_type = session.query(models.RSE.rse_type).filter(models.RSE.id == rse['id']).scalar()
-            rse_type = str(rse_type).split('.', 1)[1]
-            for usage in sources:
-                source = usage['source']
-                prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
-                prom_labels.update(extra_prom_labels)
-                used_space_gauge.labels(**prom_labels).set(usage['used'])
-                monitor.record_gauge(
-                    name='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source),
-                    value=usage['used'])
-                print(rse['rse'], country, rse_type, source, usage['used'])
-        if PROM_SERVERS:
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_report_used_space', registry=registry)
-                except:
-                    continue
+        with PrometheusPusher(registry, job_name='check_expired_rules') as prometheus_config:
+            extra_prom_labels = prometheus_config['labels']
+            labelnames.extend(extra_prom_labels.keys())
 
+            prefix: str = prometheus_config['prefix']
+            used_space_gauge = Gauge(prefix + 'report_used_space', 'Space used at an RSE from various sources',
+                                     labelnames=labelnames, registry=registry)
+
+            for rse in list_rses():
+                sources = get_rse_usage(rse['id'])
+                attributes = list_rse_attributes(rse['id'])
+                country = attributes.get('country', 'UNKNOWN')
+                rse_type = session.query(models.RSE.rse_type).filter(models.RSE.id == rse['id']).scalar()
+                rse_type = str(rse_type).split('.', 1)[1]
+                for usage in sources:
+                    source = usage['source']
+                    prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
+                    prom_labels.update(extra_prom_labels)
+                    used_space_gauge.labels(**prom_labels).set(usage['used'])
+                    monitor.record_gauge(
+                        name='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source),
+                        value=usage['used'])
+                    print(rse['rse'], country, rse_type, source, usage['used'])
     except:
-        print (traceback.format_exc())
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
