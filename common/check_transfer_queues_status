@@ -68,7 +68,7 @@ if __name__ == "__main__":
         session = get_session()
         for k in session.execute(active_queue).fetchall():
             print(k[0], k[1], end=" ")
-            monitor.record_gauge(stat=k[0], value=k[1])
+            #monitor.record_gauge(stat=k[0], value=k[1])
             items = k[0].split('.')
             state = items[2]
             activity = items[3]
