@@ -140,7 +140,7 @@ if __name__ == '__main__':
     nbusers = 0
     nonicknames = []
     client = Client()
-    admin = VOMSAdminProxy(vo='atlas', host='voms2.cern.ch', port=8443,
+    admin = VOMSAdminProxy(vo='atlas', host='lcg-voms2.cern.ch', port=8443,
                            user_cert=CERT, user_key=KEY)
     res = admin.call_method('list-users')
     accounts_email = {account['account']: account['email'] for account in client.list_accounts()}
