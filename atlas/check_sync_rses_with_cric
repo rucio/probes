@@ -24,6 +24,7 @@ import requests
 from rucio.core.account import list_accounts, list_account_attributes
 from rucio.core.account_limit import set_account_limit
 from rucio.core.rse import get_rse_protocols, add_protocol, add_rse, update_protocols
+from rucio.common.config import config_get
 from rucio.common.exception import Duplicate, RSEProtocolPriorityError, RSEProtocolNotSupported, RSENotFound
 from rucio.db.sqla.constants import RSEType
 
@@ -34,15 +35,21 @@ WARNING = 1
 OK = 0
 
 if __name__ == '__main__':
+    try:
+        PROXY = config_get('nagios', 'proxy')
+    except Exception as error:
+        print(error)
+        print("Failed to get proxy from rucio.cfg")
+        sys.exit(CRITICAL)
 
-    URL = 'http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json&state=ACTIVE&site_state=ACTIVE'
-    RESP = requests.get(url=URL)
+    URL = 'https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json'
+    RESP = requests.get(url=URL, verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY)
     DATA = json.loads(RESP.content)
     RETVALUE = OK
 
     ACC_ATTRS = [(a['account'], list_account_attributes(a['account'])) for a in list_accounts()]
     ADMIN_ACCOUNTS = [x[0] for x in ACC_ATTRS if {'key': 'admin', 'value': True} in x[1]]
-    for rse in DATA:
+    for rse in sorted(DATA.values(), key=lambda x: x['name']):
         print rse['name']
         deterministic = False
         try:
@@ -132,10 +139,11 @@ if __name__ == '__main__':
             prot_write = []
             prot_delete = []
             priority = {}
+            protocols = {}
             for activity in rse['aprotocols']:
                 index = 0
                 if activity in ['read_lan', 'read_wan', 'write_lan', 'write_wan', 'delete_lan', 'delete_wan', 'third_party_copy']:
-                    for protocol, agis_prio, agis_prefix in rse['aprotocols'][activity]:
+                    for protocol, cric_prio, cric_prefix in rse['aprotocols'][activity]:
                         index += 1
                         o = urlparse.urlparse(protocol)
                         if o.scheme not in ('https', 'http', 'srm', 'srm+https', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
@@ -143,6 +151,11 @@ if __name__ == '__main__':
                         if (o.scheme, o.netloc) not in priority:
                             priority[(o.scheme, o.netloc)] = {'read_lan': 0, 'read_wan': 0, 'write_lan': 0, 'write_wan': 0, 'delete_lan': 0, 'delete_wan': 0, 'third_party_copy': 0}
                         priority[(o.scheme, o.netloc)][activity] = index
+
+                        # Build the protocols structure that was dropped in the AGIS to CRIC migration
+                        if protocol not in protocols:
+                            protocols[protocol] = []
+                        protocols[protocol].append([activity, cric_prio, cric_prefix])
             if sum([act['read_lan'] for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['read_lan'] = priority[key]['read_wan']
@@ -153,13 +166,11 @@ if __name__ == '__main__':
                 for key in priority:
                     priority[key]['delete_lan'] = priority[key]['delete_wan']
 
-            for protocol in rse['protocols']:
+            for protocol in protocols:
                 try:
                     o = urlparse.urlparse(protocol)
                     if o.scheme not in ('https', 'http', 'srm', 'srm+https', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                         continue
-
-                    protocols = rse['protocols'][protocol]
 
                     extended_attributes = None
                     if o.scheme in ('srm', 'srm+https'):
@@ -206,7 +217,7 @@ if __name__ == '__main__':
                             port = 0
 
                     # For disk end-points not for tape
-                    prefix = rse['protocols'][protocol][0][2]
+                    prefix = protocols[protocol][0][2]
                     if not rse['is_tape'] and deterministic and not prefix.endswith('/rucio') and not prefix.endswith('/rucio/'):
                         prefix = os.path.join(prefix, 'rucio/')
 
@@ -239,12 +250,12 @@ if __name__ == '__main__':
                                 for domain in ['lan', 'wan']:
                                     for act in ['read', 'write', 'delete']:
                                         if rucio_protocol['domains'][domain][act] != priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)]:
-                                            print '%s : Protocol %s Activity %s_%s : priority in Rucio %s != priority in AGIS %s' % (rse['name'], o.scheme, act, domain,
+                                            print '%s : Protocol %s Activity %s_%s : priority in Rucio %s != priority in CRIC %s' % (rse['name'], o.scheme, act, domain,
                                                                                                                                      rucio_protocol['domains'][domain][act],
                                                                                                                                      priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)])
                                             update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)]}}}, hostname=netloc, port=port)
                                 if rucio_protocol['domains']['wan']['third_party_copy'] != priority[(o.scheme, o.netloc)]['third_party_copy']:
-                                    print '%s : Protocol %s Activity %s : priority in Rucio %s != priority in AGIS %s' % (rse['name'], o.scheme, 'third_party_copy',
+                                    print '%s : Protocol %s Activity %s : priority in Rucio %s != priority in CRIC %s' % (rse['name'], o.scheme, 'third_party_copy',
                                                                                                                           rucio_protocol['domains']['wan']['third_party_copy'],
                                                                                                                           priority[(o.scheme, o.netloc)]['third_party_copy'])
                                     update_protocols(rse['name'], o.scheme, {'domains': {'wan': {'third_party_copy': priority[(o.scheme, o.netloc)]['third_party_copy']}}}, hostname=netloc, port=port)
@@ -275,5 +286,5 @@ if __name__ == '__main__':
             if existing_protocols:
                 RETVALUE = WARNING
                 for scheme, hostname, port in existing_protocols:
-                    print 'WARNING : Protocol %s://%s:%s is defined in Rucio but not in AGIS on RSE %s !!!!' % (scheme, hostname, port, rse['name'])
+                    print 'WARNING : Protocol %s://%s:%s is defined in Rucio but not in CRIC on RSE %s !!!!' % (scheme, hostname, port, rse['name'])
     sys.exit(RETVALUE)

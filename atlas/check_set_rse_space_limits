@@ -58,21 +58,22 @@ def toTB(size):
     return size / 1000.0**4
 
 
-# Get endpoint info from AGIS to know the RSEs in each space token
+# Get endpoint info from CRIC to know the RSEs in each space token
 try:
-    URL = 'http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json&state=ACTIVE&site_state=ACTIVE'
-    RESP = requests.get(url=URL)
+    URL = 'https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json'
+    RESP = requests.get(url=URL, verify='/etc/pki/tls/certs/ca-bundle.crt')
     DATA = json.loads(RESP.content)
 except Exception as error:
-    print "Failed to get information from AGIS: %s" % str(error)
+    print "Failed to get information from CRIC: %s" % str(error)
     sys.exit(CRITICAL)
 
 # Map of RSE: hostname
 RSE_HOST = {}
-for endpoint in DATA:
-    host = urlparse(endpoint['se']).hostname
-    if host:
-        RSE_HOST[endpoint['name']] = host
+for endpoint in DATA.values():
+    if endpoint['se']:
+        host = urlparse(endpoint['se']).hostname
+        if host:
+            RSE_HOST[endpoint['name']] = host
 
 try:
     RSES = [rse['rse'] for rse in client.list_rses()]
@@ -109,8 +110,8 @@ for rse in RSES:
 
     token = tokens[0]
 
-    if not [r for r in DATA if r['name'] == rse]:
-        print "RSE %s not defined in AGIS" % rse
+    if rse not in DATA:
+        print "RSE %s not defined in CRIC" % rse
         continue
     rse_attr = client.list_rse_attributes(rse)
     if 'spacetoken' in rse_attr:
@@ -146,8 +147,12 @@ for rse in RSES:
     # If this RSE shares space with others remove rucio used from total space
     # to calculate the limit
     used_others = 0
-    for endpoint in DATA:
-        if endpoint['name'] != rse and (RSE_HOST[endpoint['name']] == RSE_HOST[rse] and spacetoken == endpoint['token']):
+    for endpoint in DATA.values():
+        if (endpoint['name'] != rse
+                and rse in RSE_HOST
+                and endpoint['name'] in RSE_HOST
+                and RSE_HOST[endpoint['name']] == RSE_HOST[rse]
+                and spacetoken == endpoint['token']):
             try:
                 if server:
                     used = client.get_rse_usage(endpoint['name'], None, source='rucio')
