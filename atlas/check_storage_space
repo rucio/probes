@@ -64,12 +64,10 @@ def get_space_usage(rse_name):
     dest = '/tmp/rucio-gsiftp-site-size_' + rse_name
     space_usage_url = ''
     # url of space usage json, woud be nicer to have it in rse_settings
-    agis = requests.get('http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json').json()
-    agis_token = ''
-    for res in agis:
-        if rse_name == res['name']:
-            agis_token = res['token']
-            space_usage_url = res['space_usage_url']
+    cric = requests.get('https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json',
+                        verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY).json()
+    cric_token = cric[rse_name]['token']
+    space_usage_url = cric[rse_name]['space_usage_url']
     print space_usage_url
     if os.path.exists(dest):
         os.remove(dest)
@@ -83,9 +81,9 @@ def get_space_usage(rse_name):
         data = json.load(data_file)
         data_file.close()
         if 'storageservice' in data:
-            return consume_wlcg_json(data, agis_token)
+            return consume_wlcg_json(data, cric_token)
         else:
-            return consume_atlas_json(data, agis_token)
+            return consume_atlas_json(data, cric_token)
 
 
 def get_space(rsename, protocol, client):

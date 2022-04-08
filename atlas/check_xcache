@@ -15,6 +15,7 @@
 #
 # Authors:
 # - Mario Lassnig, <mario.lassnig@cern.ch>, 2012-2019
+# - Dimitrios Christidis, <dimitrios.christidis@cern.ch>, 2020
 #
 # PY3K COMPATIBLE
 
@@ -34,6 +35,7 @@ except ImportError:
     from urllib.parse import urlparse
 
 from rucio.db.sqla.session import get_session
+from rucio.common.config import config_get
 from rucio.common.exception import RucioException
 
 from rucio.core.config import set as core_set
@@ -51,6 +53,13 @@ RESULT = OK
 if __name__ == '__main__':
 
     try:
+        PROXY = config_get('nagios', 'proxy')
+    except Exception as error:
+        print(error)
+        print("Failed to get proxy from rucio.cfg")
+        sys.exit(CRITICAL)
+
+    try:
 
         session = get_session()
 
@@ -59,36 +68,34 @@ if __name__ == '__main__':
         for site, host in res:
             xcaches_in_rucio[site] = host
 
-        SE_URL = 'http://atlas-agis-api.cern.ch/request/serviceobject/query/list/?json&type=SE&state=ACTIVE'
+        SE_URL = 'https://atlas-cric.cern.ch/api/core/service/query/?json&type=SE'
         try:
-            SE_RESP = requests.get(SE_URL)
+            SE_RESP = requests.get(SE_URL, verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY)
             SE_DATA = json.loads(SE_RESP.content)
         except Exception as error:
-            print("Failed to load SE info from AGIS: %s" % str(error))
+            print("Failed to load SE info from CRIC: %s" % str(error))
             sys.exit(WARNING)
 
-        xcaches_in_agis = []
+        xcaches_in_cric = []
 
-        for rc_site in SE_DATA:
+        for se in SE_DATA:
 
-            for se in SE_DATA[rc_site]:
+            for protocol in SE_DATA[se]['protocols']:
 
-                for protocol in SE_DATA[rc_site][se]['protocols']:
+                # find all active internal proxies (==xcaches_in_cric)
+                if SE_DATA[se]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
+                   SE_DATA[se]['protocols'][protocol]['state'] == 'ACTIVE':
+                    xcaches_in_cric.append((SE_DATA[se]['rcsite'], SE_DATA[se]['protocols'][protocol]['endpoint']))
 
-                    # find all active internal proxies (==xcaches_in_agis)
-                    if SE_DATA[rc_site][se]['protocols'][protocol]['doortype'] == 'proxyinternal' and\
-                       SE_DATA[rc_site][se]['protocols'][protocol]['state'] == 'ACTIVE':
-                        xcaches_in_agis.append((rc_site, SE_DATA[rc_site][se]['protocols'][protocol]['endpoint']))
-
-        print('Setting values in Rucio from AGIS:')
-        for xcache in xcaches_in_agis:
+        print('Setting values in Rucio from CRIC:')
+        for xcache in xcaches_in_cric:
             url = '%s:%s' % (urlparse(xcache[1]).hostname, urlparse(xcache[1]).port)
             print('-SET->', xcache[0], '--->', url)
             core_set('root-proxy-internal', xcache[0], url, session=session)
             if xcache[0] in xcaches_in_rucio.keys():
                 del xcaches_in_rucio[xcache[0]]
 
-        print('Removing Rucio entries which were not found in AGIS:')
+        print('Removing Rucio entries which were not found in CRIC:')
         for xcache in xcaches_in_rucio:
             print('-DEL->', xcache)
             core_del('root-proxy-internal', xcache, session=session)
