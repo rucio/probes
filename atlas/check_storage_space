@@ -122,7 +122,6 @@ def get_space(rsename, protocol, client):
 
         if retvalue == OK:
             print "Update RSE %s space usage (usedsize: %s, freesize: %s)" % (rsename, usedsize, freesize)
-            client.set_rse_usage(rsename, protocol, usedsize, freesize)
             client.set_rse_usage(rsename, 'storage', usedsize, freesize)
             return retvalue
     return WARNING
