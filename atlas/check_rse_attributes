@@ -136,11 +136,6 @@ if __name__ == '__main__':
                     add_rse_attribute(name, 'fts', ','.join(rse['servedrestfts']['MASTER']), session=session)
                 else:
                     add_rse_attribute(name, 'fts', str(rse['servedrestfts']['MASTER']), session=session)
-            if rse['type'] not in ['OS_LOGS', 'OS_ES']:
-                if isinstance(rse['servedrestfts']['TESTING'], list):
-                    add_rse_attribute(name, 'fts_testing', ','.join(rse['servedrestfts']['TESTING']), session=session)
-                else:
-                    add_rse_attribute(name, 'fts_testing', str(rse['servedrestfts']['TESTING']), session=session)
             if 'datapolicies' in rse:
                 add_rse_attribute(name, 'datapolicyt0disk', 'T0Disk' in rse['datapolicies'], session=session)
                 add_rse_attribute(name, 'datapolicyt0tape', 'T0Tape' in rse['datapolicies'], session=session)
