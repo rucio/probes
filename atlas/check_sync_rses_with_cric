@@ -60,8 +60,6 @@ if __name__ == '__main__':
             # Set infinite quotas for admin accounts
             for account in ADMIN_ACCOUNTS:
                 set_account_limit(account, rse['name'], -1)
-            if not rse['is_tape']:
-                set_account_limit('sonar', rse['name'], 10000000000000)
         except Duplicate as error:
             pass
         except Exception:
