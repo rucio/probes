@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright European Organization for Nuclear Research (CERN)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,7 @@ import json
 import os.path
 import sys
 import traceback
-import urlparse
+from urllib.parse import urlparse
 
 import requests
 
@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     ADMIN_ACCOUNTS = [a['account'] for a in list_accounts(filter_={'admin': True})]
     for rse in sorted(DATA.values(), key=lambda x: x['name']):
-        print rse['name']
+        print(rse['name'])
         deterministic = False
         try:
             deterministic = rse['is_deterministic']
@@ -66,7 +66,7 @@ if __name__ == '__main__':
             RETVALUE = CRITICAL
             errno, errstr = sys.exc_info()[:2]
             trcbck = traceback.format_exc()
-            print 'Interrupted processing with %s %s %s.' % (errno, errstr, trcbck)
+            print(f'Interrupted processing with {errno} {errstr} {trcbck}.')
 
         prefix = rse['endpoint']
         space_token = rse['token']
@@ -78,10 +78,10 @@ if __name__ == '__main__':
                 existing_protocols.append((prot['scheme'], prot['hostname'], prot['port']))
 
         except RSENotFound as error:
-            print error
+            print(error)
             continue
         if rse['type'] in ['OS_ES', 'OS_LOGS', 'OS_CACHE']:
-            print 'This is a Object store endpoint. Skipping the protocols'
+            print('This is a Object store endpoint. Skipping the protocols')
             priority = {}
             for activity in rse['arprotocols']:
                 index = 0
@@ -89,7 +89,7 @@ if __name__ == '__main__':
                     for protocol in rse['arprotocols'][activity]:
                         index += 1
                         path = protocol['path']
-                        o = urlparse.urlparse(protocol['endpoint'])
+                        o = urlparse(protocol['endpoint'])
                         if (o.scheme, o.netloc, path) not in priority:
                             priority[(o.scheme, o.netloc, path)] = {'read_lan': 0, 'read_wan': 0, 'write_lan': 0, 'write_wan': 0, 'delete_lan': 0, 'delete_wan': 0, 'third_party_copy': 0}
                         priority[(o.scheme, o.netloc, path)][activity] = index
@@ -121,14 +121,14 @@ if __name__ == '__main__':
                                               "write": priority[prio]['write_wan'],
                                               "delete": priority[prio]['delete_wan'],
                                               "third_party_copy": priority[prio]['third_party_copy']}}}
-                print params
+                print(params)
                 if impl:
                     try:
                         add_protocol(rse=rse['name'], parameter=params)
                     except Duplicate as error:
-                        print error
+                        print(error)
                 else:
-                    print 'No implementation defined for %s on RSE %s' % (scheme, rse['name'])
+                    print(f'No implementation defined for {scheme} on RSE {rse["name"]}')
                     RETVALUE = CRITICAL
 
         else:
@@ -142,7 +142,7 @@ if __name__ == '__main__':
                 if activity in ['read_lan', 'read_wan', 'write_lan', 'write_wan', 'delete_lan', 'delete_wan', 'third_party_copy']:
                     for protocol, cric_prio, cric_prefix in rse['aprotocols'][activity]:
                         index += 1
-                        o = urlparse.urlparse(protocol)
+                        o = urlparse(protocol)
                         if o.scheme not in ('https', 'http', 'srm', 'srm+https', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                             continue
                         if (o.scheme, o.netloc) not in priority:
@@ -165,7 +165,7 @@ if __name__ == '__main__':
 
             for protocol in protocols:
                 try:
-                    o = urlparse.urlparse(protocol)
+                    o = urlparse(protocol)
                     if o.scheme not in ('https', 'http', 'srm', 'srm+https', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                         continue
 
@@ -246,42 +246,46 @@ if __name__ == '__main__':
                             try:
                                 for domain in ['lan', 'wan']:
                                     for act in ['read', 'write', 'delete']:
-                                        if rucio_protocol['domains'][domain][act] != priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)]:
-                                            print '%s : Protocol %s Activity %s_%s : priority in Rucio %s != priority in CRIC %s' % (rse['name'], o.scheme, act, domain,
-                                                                                                                                     rucio_protocol['domains'][domain][act],
-                                                                                                                                     priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)])
-                                            update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)]['%s_%s' % (act, domain)]}}}, hostname=netloc, port=port)
+                                        if rucio_protocol['domains'][domain][act] != priority[(o.scheme, o.netloc)][f'{act}_{domain}']:
+                                            print('{} : Protocol {} Activity {}_{} : priority in Rucio {} != priority in CRIC {}'.format(rse['name'],
+                                                                                                                                         o.scheme,
+                                                                                                                                         act,
+                                                                                                                                         domain,
+                                                                                                                                         rucio_protocol['domains'][domain][act],
+                                                                                                                                         priority[(o.scheme, o.netloc)][f'{act}_{domain}']))
+                                            update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)][f'{act}_{domain}']}}}, hostname=netloc, port=port)
                                 if rucio_protocol['domains']['wan']['third_party_copy'] != priority[(o.scheme, o.netloc)]['third_party_copy']:
-                                    print '%s : Protocol %s Activity %s : priority in Rucio %s != priority in CRIC %s' % (rse['name'], o.scheme, 'third_party_copy',
-                                                                                                                          rucio_protocol['domains']['wan']['third_party_copy'],
-                                                                                                                          priority[(o.scheme, o.netloc)]['third_party_copy'])
+                                    print('{} : Protocol {} Activity {} : priority in Rucio {} != priority in CRIC {}'.format(rse['name'],
+                                                                                                                              o.scheme,
+                                                                                                                              'third_party_copy',
+                                                                                                                              rucio_protocol['domains']['wan']['third_party_copy'],
+                                                                                                                              priority[(o.scheme, o.netloc)]['third_party_copy']))
                                     update_protocols(rse['name'], o.scheme, {'domains': {'wan': {'third_party_copy': priority[(o.scheme, o.netloc)]['third_party_copy']}}}, hostname=netloc, port=port)
 
                             except RSEProtocolNotSupported as error:
-                                print error
+                                print(error)
                         else:
-                            print 'Will create protocol %s at %s with priorities read_lan,write_lan,delete_lan,read_wan,write_wan,delete_wan,third_party_copy : ' \
-                                  '%s,%s,%s,%s,%s,%s,%s' % (o.scheme, rse['name'],
-                                                            params['domains']['lan']['read'], params['domains']['lan']['write'], params['domains']['lan']['delete'],
+                            print(f'Will create protocol {o.scheme} at {rse["name"]} with priorities read_lan,write_lan,delete_lan,read_wan,write_wan,delete_wan,third_party_copy :',
+                                  ','.join(str(x) for x in [params['domains']['lan']['read'], params['domains']['lan']['write'], params['domains']['lan']['delete'],
                                                             params['domains']['wan']['read'], params['domains']['wan']['write'], params['domains']['wan']['delete'],
-                                                            params['domains']['wan']['third_party_copy'])
+                                                            params['domains']['wan']['third_party_copy']]))
                             try:
                                 add_protocol(rse=rse['name'], parameter=params)
                             except Exception as error:
-                                print error
+                                print(error)
                 except Duplicate as error:
                     pass
                 except RSEProtocolPriorityError as error:
-                    print 'RSE %s protocol %s: %s' % (rse['name'], o.scheme, error)
+                    print(f'RSE {rse["name"]} protocol {o.scheme}: {error}')
                     if RETVALUE != CRITICAL:
                         RETVALUE = WARNING
                 except Exception:
                     RETVALUE = CRITICAL
                     errno, errstr = sys.exc_info()[:2]
                     trcbck = traceback.format_exc()
-                    print 'RSE %s protocol %s : Interrupted processing with %s %s %s.' % (rse['name'], o.scheme, errno, errstr, trcbck)
+                    print(f'RSE {rse["name"]} protocol {o.scheme} : Interrupted processing with {errno} {errstr} {trcbck}.')
             if existing_protocols:
                 RETVALUE = WARNING
                 for scheme, hostname, port in existing_protocols:
-                    print 'WARNING : Protocol %s://%s:%s is defined in Rucio but not in CRIC on RSE %s !!!!' % (scheme, hostname, port, rse['name'])
+                    print(f'WARNING : Protocol {scheme}://{hostname}:{port} is defined in Rucio but not in CRIC on RSE {rse["name"]} !!!!')
     sys.exit(RETVALUE)
