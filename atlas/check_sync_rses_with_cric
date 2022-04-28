@@ -21,7 +21,7 @@ import urlparse
 
 import requests
 
-from rucio.core.account import list_accounts, list_account_attributes
+from rucio.core.account import list_accounts
 from rucio.core.account_limit import set_account_limit
 from rucio.core.rse import get_rse_protocols, add_protocol, add_rse, update_protocols
 from rucio.common.config import config_get
@@ -47,8 +47,7 @@ if __name__ == '__main__':
     DATA = json.loads(RESP.content)
     RETVALUE = OK
 
-    ACC_ATTRS = [(a['account'], list_account_attributes(a['account'])) for a in list_accounts()]
-    ADMIN_ACCOUNTS = [x[0] for x in ACC_ATTRS if {'key': 'admin', 'value': True} in x[1]]
+    ADMIN_ACCOUNTS = [a['account'] for a in list_accounts(filter_={'admin': True})]
     for rse in sorted(DATA.values(), key=lambda x: x['name']):
         print rse['name']
         deterministic = False
