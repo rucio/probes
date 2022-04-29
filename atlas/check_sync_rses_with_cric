@@ -21,9 +21,9 @@ from urllib.parse import urlparse
 
 import requests
 
-from rucio.core.account import list_accounts
-from rucio.core.account_limit import set_account_limit
-from rucio.core.rse import get_rse_protocols, add_protocol, add_rse, update_protocols
+from rucio.api.account import list_accounts
+from rucio.api.account_limit import set_local_account_limit
+from rucio.api.rse import get_rse_protocols, add_protocol, add_rse, update_protocols
 from rucio.common.config import config_get
 from rucio.common.exception import Duplicate, RSEProtocolPriorityError, RSEProtocolNotSupported, RSENotFound
 from rucio.db.sqla.constants import RSEType
@@ -55,11 +55,11 @@ if __name__ == '__main__':
             deterministic = rse['is_deterministic']
             volatile = False
             rse_type = RSEType.TAPE if rse['is_tape'] else RSEType.DISK
-            add_rse(rse=rse['name'], deterministic=deterministic,
+            add_rse(rse=rse['name'], issuer='root', deterministic=deterministic,
                     volatile=volatile, rse_type=rse_type)
             # Set infinite quotas for admin accounts
             for account in ADMIN_ACCOUNTS:
-                set_account_limit(account, rse['name'], -1)
+                set_local_account_limit(account, rse['name'], -1, issuer='root')
         except Duplicate as error:
             pass
         except Exception:
@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
         existing_protocols = []
         try:
-            rucio_protocols = get_rse_protocols(rse['name'], None)
+            rucio_protocols = get_rse_protocols(rse['name'], issuer='root')
             for prot in rucio_protocols['protocols']:
                 existing_protocols.append((prot['scheme'], prot['hostname'], prot['port']))
 
@@ -124,7 +124,7 @@ if __name__ == '__main__':
                 print(params)
                 if impl:
                     try:
-                        add_protocol(rse=rse['name'], parameter=params)
+                        add_protocol(rse=rse['name'], issuer='root', data=params)
                     except Duplicate as error:
                         print(error)
                 else:
@@ -253,14 +253,14 @@ if __name__ == '__main__':
                                                                                                                                          domain,
                                                                                                                                          rucio_protocol['domains'][domain][act],
                                                                                                                                          priority[(o.scheme, o.netloc)][f'{act}_{domain}']))
-                                            update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)][f'{act}_{domain}']}}}, hostname=netloc, port=port)
+                                            update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)][f'{act}_{domain}']}}}, issuer='root', hostname=netloc, port=port)
                                 if rucio_protocol['domains']['wan']['third_party_copy'] != priority[(o.scheme, o.netloc)]['third_party_copy']:
                                     print('{} : Protocol {} Activity {} : priority in Rucio {} != priority in CRIC {}'.format(rse['name'],
                                                                                                                               o.scheme,
                                                                                                                               'third_party_copy',
                                                                                                                               rucio_protocol['domains']['wan']['third_party_copy'],
                                                                                                                               priority[(o.scheme, o.netloc)]['third_party_copy']))
-                                    update_protocols(rse['name'], o.scheme, {'domains': {'wan': {'third_party_copy': priority[(o.scheme, o.netloc)]['third_party_copy']}}}, hostname=netloc, port=port)
+                                    update_protocols(rse['name'], o.scheme, {'domains': {'wan': {'third_party_copy': priority[(o.scheme, o.netloc)]['third_party_copy']}}}, issuer='root', hostname=netloc, port=port)
 
                             except RSEProtocolNotSupported as error:
                                 print(error)
@@ -270,7 +270,7 @@ if __name__ == '__main__':
                                                             params['domains']['wan']['read'], params['domains']['wan']['write'], params['domains']['wan']['delete'],
                                                             params['domains']['wan']['third_party_copy']]))
                             try:
-                                add_protocol(rse=rse['name'], parameter=params)
+                                add_protocol(rse=rse['name'], issuer='root', data=params)
                             except Exception as error:
                                 print(error)
                 except Duplicate as error:
