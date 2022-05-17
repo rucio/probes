@@ -70,7 +70,7 @@ if __name__ == '__main__':
                 try:
                     if DATA[site][activity]['status']['value'] == 'OFF':
                         EXCLUDED_SITES[MAPPING[activity]].append(site)
-                        if DATA[site][activity]['status']['provider'] == 'DOWNTIME' and DATA[site][activity]['status']['reason'].find('https://goc.egi.eu/portal/index.php?Page_Type=Downtime') > -1:
+                        if DATA[site][activity]['status']['provider'] == 'DOWNTIME':
                             DOWNTIMES[site] = DATA[site][activity]['status']['reason']
                 except KeyError as error:
                     print(error)
