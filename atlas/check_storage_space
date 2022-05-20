@@ -26,7 +26,6 @@ import os
 import sys
 
 import gfal2
-import requests
 
 from rucio.client import Client
 from rucio.common.config import config_get
@@ -62,12 +61,9 @@ def get_space_usage(rse_name):
 
     """
     dest = '/tmp/rucio-gsiftp-site-size_' + rse_name
-    space_usage_url = ''
-    # url of space usage json, woud be nicer to have it in rse_settings
-    cric = requests.get('https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json',
-                        verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY).json()
-    cric_token = cric[rse_name]['token']
-    space_usage_url = cric[rse_name]['space_usage_url']
+    rse_attributes = list_rse_attributes(rse_name)
+    space_usage_url = rse_attributes['srr_url']
+    space_usage_key = rse_attributes['spacetoken']
     print space_usage_url
     if os.path.exists(dest):
         os.remove(dest)
@@ -81,9 +77,9 @@ def get_space_usage(rse_name):
         data = json.load(data_file)
         data_file.close()
         if 'storageservice' in data:
-            return consume_wlcg_json(data, cric_token)
+            return consume_wlcg_json(data, space_usage_key)
         else:
-            return consume_atlas_json(data, cric_token)
+            return consume_atlas_json(data, space_usage_key)
 
 
 def get_space(rsename, protocol, client):
