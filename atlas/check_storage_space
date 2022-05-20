@@ -59,26 +59,30 @@ def get_space_usage(rse_name):
     :returns: a list with dict containing 'totalsize' and 'unusedsize'
 
     """
-    dest = '/tmp/rucio-gsiftp-site-size_' + rse_name
     rse_attributes = list_rse_attributes(rse_name)
     space_usage_url = rse_attributes['srr_url']
     space_usage_key = rse_attributes['spacetoken']
-    print(space_usage_url)
-    if os.path.exists(dest):
-        os.remove(dest)
-    ctx = gfal2.creat_context()
-    ctx.set_opt_string_list("SRM PLUGIN", "TURL_PROTOCOLS", ["gsiftp", "rfio", "gsidcap", "dcap", "kdcap"])
-    params = ctx.transfer_parameters()
-    params.timeout = 3600
-    ret = ctx.filecopy(params, str(space_usage_url), str('file://' + dest))
-    if ret == 0:
-        data_file = open(dest)
-        data = json.load(data_file)
-        data_file.close()
-        if 'storageservice' in data:
-            return consume_wlcg_json(data, space_usage_key)
-        else:
-            return consume_atlas_json(data, space_usage_key)
+
+    if space_usage_url not in CACHE:
+        print(f'Downloading {space_usage_url}')
+        ctx = gfal2.creat_context()
+        ctx.set_opt_integer('CORE', 'NAMESPACE_TIMEOUT', 60)
+
+        handle = ctx.open(space_usage_url, 'r')
+        content = b''
+        while True:
+            chunk = handle.read_bytes(65000)
+            if not chunk:
+                break
+            content += chunk
+
+        CACHE[space_usage_url] = json.loads(content.decode())
+
+    data = CACHE[space_usage_url]
+    if 'storageservice' in data:
+        return consume_wlcg_json(data, space_usage_key)
+    else:
+        return consume_atlas_json(data, space_usage_key)
 
 
 def get_space(rsename, protocol):
@@ -125,6 +129,7 @@ def get_space(rsename, protocol):
 if __name__ == "__main__":
 
     CLOUD = sys.argv[1]
+    CACHE = {}
 
     exitvalue = OK
     retvalue = OK
