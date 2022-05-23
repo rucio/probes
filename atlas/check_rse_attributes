@@ -115,9 +115,9 @@ if __name__ == '__main__':
             add_rse_attribute(name, 'site', str(rse['site']), session=session)
             add_rse_attribute(name, 'type', str(rse['type']), session=session)
             if rse['space_usage_url']:
-                add_rse_attribute(name, 'space_usage_method', 'json', session=session)
+                add_rse_attribute(name, 'srr_url', rse['space_usage_url'], session=session)
             elif name in SPACE_USAGE:
-                del_rse_attribute(name, 'space_usage_method', session=session)
+                add_rse_attribute(name, 'srr_url', rse['space_usage_url'], session=session)
             if rse['space_method'] == 'rucio':
                 add_rse_attribute(name, 'source_for_used_space', 'rucio', session=session)
             elif name in SOURCE_USED_SPACE:
