@@ -23,26 +23,34 @@ Probe to check the free space at each rse.
 '''
 
 import sys
-
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from prometheus_client import CollectorRegistry, Gauge
 from rucio.api.rse import list_rses, get_rse_usage
 from rucio.common.config import config_get
 
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+##PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
+#if PROM_SERVERS != '':
+#    PROM_SERVERS = PROM_SERVERS.split(',')
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 
 if __name__ == '__main__':
+    registry = CollectorRegistry()
+    labelnames = ['rse']
     try:
-        registry = CollectorRegistry()
-        free_space_gauge = Gauge('judge_free_space',
-                                 '', labelnames=('rse',), registry=registry)
+        with PrometheusPusher(registry, job_name='check_free_space') as prometheus_config:
+            extra_prom_labels = prometheus_config['labels']
+            prefix: str = prometheus_config['prefix']
+            labelnames.extend(extra_prom_labels.keys())
+            free_space_gauge = Gauge(prefix + 'report_free_space',
+                                 'Free space at each site', labelnames=labelnames, registry=registry)
         for rse in list_rses():
             limits = get_rse_usage(rse['rse'], issuer='transfer_ops')
             rucio_used = None
@@ -56,15 +64,11 @@ if __name__ == '__main__':
                 free_space = None
             else:
                 free_space = int(static_used) - int(rucio_used)
+                prom_labels = {'rse': rse['rse']}
+                prom_labels.update(extra_prom_labels)
                 print(rse['rse'], free_space)
-                free_space_gauge.labels(**{'rse': rse['rse']}).set(free_space)
-        if len(PROM_SERVERS):
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_free_space', registry=registry)
-                except:
-                    continue
+                free_space_gauge.labels(**prom_labels).set(free_space)
+
     except:
         print (traceback.format_exc())
         sys.exit(UNKNOWN)
-    sys.exit(OK)
