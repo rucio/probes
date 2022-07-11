@@ -93,11 +93,12 @@ if __name__ == '__main__':
                         if (o.scheme, o.netloc, path) not in priority:
                             priority[(o.scheme, o.netloc, path)] = {'read_lan': 0, 'write_lan': 0, 'delete_lan': 0,
                                                                     'read_wan': 0, 'write_wan': 0, 'delete_wan': 0,
-                                                                    'third_party_copy': 0, 'third_party_copy_read': 0, 'third_party_copy_write': 0}
-                        priority[(o.scheme, o.netloc, path)][activity] = index
+                                                                    'third_party_copy_read': 0, 'third_party_copy_write': 0}
                         if activity == 'third_party_copy':
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_read'] = index
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_write'] = index
+                        else:
+                            priority[(o.scheme, o.netloc, path)][activity] = index
             for prio in priority:
                 scheme, host_with_port, prefix = prio
                 if not prefix.endswith('/'):
@@ -125,7 +126,6 @@ if __name__ == '__main__':
                                       "wan": {"read": priority[prio]['read_wan'],
                                               "write": priority[prio]['write_wan'],
                                               "delete": priority[prio]['delete_wan'],
-                                              "third_party_copy": priority[prio]['third_party_copy'],
                                               "third_party_copy_read": priority[prio]['third_party_copy_read'],
                                               "third_party_copy_write": priority[prio]['third_party_copy_write']}}}
                 print(params)
@@ -155,11 +155,12 @@ if __name__ == '__main__':
                         if (o.scheme, o.netloc) not in priority:
                             priority[(o.scheme, o.netloc)] = {'read_lan': 0, 'write_lan': 0, 'delete_lan': 0,
                                                               'read_wan': 0, 'write_wan': 0, 'delete_wan': 0,
-                                                              'third_party_copy': 0, 'third_party_copy_read': 0, 'third_party_copy_write': 0}
-                        priority[(o.scheme, o.netloc)][activity] = index
+                                                              'third_party_copy_read': 0, 'third_party_copy_write': 0}
                         if activity == 'third_party_copy':
                             priority[(o.scheme, o.netloc)]['third_party_copy_read'] = index
                             priority[(o.scheme, o.netloc)]['third_party_copy_write'] = index
+                        else:
+                            priority[(o.scheme, o.netloc)][activity] = index
 
                         # Build the protocols structure that was dropped in the AGIS to CRIC migration
                         if protocol not in protocols:
@@ -242,7 +243,6 @@ if __name__ == '__main__':
                                           "wan": {"read": priority[(o.scheme, o.netloc)]['read_wan'],
                                                   "write": priority[(o.scheme, o.netloc)]['write_wan'],
                                                   "delete": priority[(o.scheme, o.netloc)]['delete_wan'],
-                                                  "third_party_copy": priority[(o.scheme, o.netloc)]['third_party_copy'],
                                                   "third_party_copy_read": priority[(o.scheme, o.netloc)]['third_party_copy_write'],
                                                   "third_party_copy_write": priority[(o.scheme, o.netloc)]['third_party_copy_write']}}}
 
@@ -268,17 +268,27 @@ if __name__ == '__main__':
                                                                                                                                          rucio_protocol['domains'][domain][act],
                                                                                                                                          priority[(o.scheme, o.netloc)][f'{act}_{domain}']))
                                             update_protocols(rse['name'], o.scheme, {'domains': {domain: {act: priority[(o.scheme, o.netloc)][f'{act}_{domain}']}}}, issuer='root', hostname=netloc, port=port)
-                                if rucio_protocol['domains']['wan']['third_party_copy'] != priority[(o.scheme, o.netloc)]['third_party_copy']:
+                                if rucio_protocol['domains']['wan']['third_party_copy_read'] != priority[(o.scheme, o.netloc)]['third_party_copy_read']:
                                     print('{} : Protocol {} Activity {} : priority in Rucio {} != priority in CRIC {}'.format(rse['name'],
                                                                                                                               o.scheme,
-                                                                                                                              'third_party_copy',
-                                                                                                                              rucio_protocol['domains']['wan']['third_party_copy'],
-                                                                                                                              priority[(o.scheme, o.netloc)]['third_party_copy']))
+                                                                                                                              'third_party_copy_read',
+                                                                                                                              rucio_protocol['domains']['wan']['third_party_copy_read'],
+                                                                                                                              priority[(o.scheme, o.netloc)]['third_party_copy_read']))
                                     update_protocols(rse=rse['name'],
                                                      scheme=o.scheme,
-                                                     data={'domains': {'wan': {'third_party_copy': priority[(o.scheme, o.netloc)]['third_party_copy'],
-                                                                               'third_party_copy_read': priority[(o.scheme, o.netloc)]['third_party_copy_read'],
-                                                                               'third_party_copy_write': priority[(o.scheme, o.netloc)]['third_party_copy_write']}}},
+                                                     data={'domains': {'wan': {'third_party_copy_read': priority[(o.scheme, o.netloc)]['third_party_copy_read']}}},
+                                                     issuer='root',
+                                                     hostname=netloc,
+                                                     port=port)
+                                if rucio_protocol['domains']['wan']['third_party_copy_write'] != priority[(o.scheme, o.netloc)]['third_party_copy_write']:
+                                    print('{} : Protocol {} Activity {} : priority in Rucio {} != priority in CRIC {}'.format(rse['name'],
+                                                                                                                              o.scheme,
+                                                                                                                              'third_party_copy_write',
+                                                                                                                              rucio_protocol['domains']['wan']['third_party_copy_write'],
+                                                                                                                              priority[(o.scheme, o.netloc)]['third_party_copy_write']))
+                                    update_protocols(rse=rse['name'],
+                                                     scheme=o.scheme,
+                                                     data={'domains': {'wan': {'third_party_copy_write': priority[(o.scheme, o.netloc)]['third_party_copy_write']}}},
                                                      issuer='root',
                                                      hostname=netloc,
                                                      port=port)
@@ -286,10 +296,10 @@ if __name__ == '__main__':
                             except RSEProtocolNotSupported as error:
                                 print(error)
                         else:
-                            print(f'Will create protocol {o.scheme} at {rse["name"]} with priorities read_lan,write_lan,delete_lan,read_wan,write_wan,delete_wan,third_party_copy,third_party_copy_read,third_party_copy_write :',
+                            print(f'Will create protocol {o.scheme} at {rse["name"]} with priorities read_lan,write_lan,delete_lan,read_wan,write_wan,delete_wan,third_party_copy_read,third_party_copy_write :',
                                   ','.join(str(x) for x in [params['domains']['lan']['read'], params['domains']['lan']['write'], params['domains']['lan']['delete'],
                                                             params['domains']['wan']['read'], params['domains']['wan']['write'], params['domains']['wan']['delete'],
-                                                            params['domains']['wan']['third_party_copy'], params['domains']['wan']['third_party_copy_read'], params['domains']['wan']['third_party_copy_read']]))
+                                                            params['domains']['wan']['third_party_copy_read'], params['domains']['wan']['third_party_copy_read']]))
                             try:
                                 add_protocol(rse=rse['name'], issuer='root', data=params)
                             except Exception as error:
