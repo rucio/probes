@@ -14,12 +14,9 @@
 # limitations under the License.
 #
 # Authors:
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2019
+# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2022
 # - Mario Lassnig <mario.lassnig@cern.ch>, 2020
 #
-# PY3K COMPATIBLE
-
-from __future__ import print_function
 
 import json
 import os
@@ -28,7 +25,7 @@ import sys
 import requests
 
 from rucio.common.config import config_get
-from rucio.core.rse import list_rses, update_rse, get_rse_protocols
+from rucio.api.rse import list_rses, update_rse, get_rse_protocols
 from rucio.transfertool.fts3 import FTS3Transfertool
 
 
@@ -90,11 +87,11 @@ if __name__ == '__main__':
                 print('%s will be excluded for %s' % (site['rse'], activity))
                 try:
                     if not DRYRUN:
-                        update_rse(site['rse'], {activity: False})
+                        update_rse(site['rse'], {activity: False}, issuer='root')
                         if activity in ['availability_write']:
                             for rse in EXCLUDED_SITES[activity]:
                                 if rse in DOWNTIMES:
-                                    protocols = get_rse_protocols(rse)
+                                    protocols = get_rse_protocols(rse, issuer='root')
                                     for prot in protocols['protocols']:
                                         if 'third_party_copy' in prot['domains']['wan']:
                                             se = '%s://%s' % (prot['scheme'], prot['hostname'])
@@ -117,8 +114,8 @@ if __name__ == '__main__':
                 print('%s will be included for %s' % (rse, activity))
                 try:
                     if not DRYRUN:
-                        update_rse(rse, {activity: True})
-                        protocols = get_rse_protocols(rse)
+                        update_rse(rse, {activity: True}, issuer='root')
+                        protocols = get_rse_protocols(rse, issuer='root')
                         for prot in protocols['protocols']:
                             if 'third_party_copy' in prot['domains']['wan']:
                                 se = '%s://%s' % (prot['scheme'], prot['hostname'])
@@ -142,7 +139,7 @@ if __name__ == '__main__':
 
     SES = []
     for rse in DOWNTIMES:
-        protocols = get_rse_protocols(rse)
+        protocols = get_rse_protocols(rse, issuer='root')
         for prot in protocols['protocols']:
             if 'third_party_copy' in prot['domains']['wan']:
                 se = '%s://%s' % (prot['scheme'], prot['hostname'])
