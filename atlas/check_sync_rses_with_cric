@@ -243,7 +243,7 @@ if __name__ == '__main__':
                                           "wan": {"read": priority[(o.scheme, o.netloc)]['read_wan'],
                                                   "write": priority[(o.scheme, o.netloc)]['write_wan'],
                                                   "delete": priority[(o.scheme, o.netloc)]['delete_wan'],
-                                                  "third_party_copy_read": priority[(o.scheme, o.netloc)]['third_party_copy_write'],
+                                                  "third_party_copy_read": priority[(o.scheme, o.netloc)]['third_party_copy_read'],
                                                   "third_party_copy_write": priority[(o.scheme, o.netloc)]['third_party_copy_write']}}}
 
                     rucio_protocol = None
