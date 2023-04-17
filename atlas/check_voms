@@ -99,7 +99,7 @@ def get_ldap_identities():
                     mail = pmail[len('smtp:'):]
                     if mail.lower() not in [umail.lower() for umail in user['mails']]:
                         user['mails'].append(mail)
-            for mail in attrs.get('mail', []):
+            for mail in attrs.get('mail', []) + attrs.get('cernExternalMail', []):
                 if mail.lower() not in [umail.lower() for umail in user['mails']]:
                     user['mails'].append(mail)
 
