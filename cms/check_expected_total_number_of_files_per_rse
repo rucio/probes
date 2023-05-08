@@ -23,6 +23,7 @@ from rucio.db.sqla.session import BASE, get_session
 from utils import common
 
 PrometheusPusher = common.PrometheusPusher
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -50,7 +51,7 @@ if __name__ == "__main__":
                 prom_labels = {'dst_rse': rse}
                 prom_labels.update(extra_prom_labels)
                 nfiles_gauge.labels(**prom_labels).set(count_files)
-                monitor.record_gauge(name='judge.expected_number_of_files.%s' % rse, value=count_files)
+                probe_metrics.gauge(name='judge.expected_number_of_files.{rse}').labels(rse=rse).set(count_files)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
