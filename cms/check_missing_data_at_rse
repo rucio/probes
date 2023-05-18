@@ -15,8 +15,11 @@ Probe to check the backlog of missing data at rse
 import sys
 import traceback
 
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -37,7 +40,7 @@ if __name__ == "__main__":
                  group by {schema}rses.rse, rse_type""".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, bytes, rse_type in result:
-            monitor.record_gauge('missing_data.%s.%s' % (rse_type, rse), value=bytes)
+            probe_metrics.gauge('missing_data.{rse_type}.{rse}').labels(rse=rse, rse_type=rse_type).set(bytes)
 
         sql = """select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}rses.rse rse, sum(bytes), rse_type \
                  from {schema}requests \
@@ -47,7 +50,7 @@ if __name__ == "__main__":
                  group by {schema}rses.rse, rse_type""".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, bytes, rse_type in result:
-            monitor.record_gauge('replicating_data.%s.%s' % (rse_type, rse), value=bytes)
+            probe_metrics.gauge('replicating_data.{rse_type}.{rse}').labels(rse=rse, rse_type=rse_type).set(bytes)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)

@@ -24,20 +24,21 @@ Probe to check rules.
 """
 
 import datetime
+import json
 import sys
 import traceback
-import json
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
-from rucio.core import monitor
+from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import (RuleState)
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
-from rucio.common.config import config_get
-
 from sqlalchemy import func
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
 if PROM_SERVERS != '':
@@ -61,7 +62,6 @@ if __name__ == '__main__':
     rules_by_activity_labels = ['state', 'activity']
     locks_by_activity_labels = ['state', 'activity']
 
-
     rule_count_labels.extend(extra_prom_labels.keys())
     not_ok_labels.extend(extra_prom_labels.keys())
     stuck_cnt_labels.extend(extra_prom_labels.keys())
@@ -81,7 +81,6 @@ if __name__ == '__main__':
                                   labelnames=rules_by_activity_labels, registry=registry)
     locks_count_by_activity_gauge = Gauge('rucio_locks_states_by_ativity_cnt', 'Number of S/R locks by activity',
                                   labelnames=locks_by_activity_labels, registry=registry)
-
 
     try:
         session = get_session()
@@ -109,8 +108,7 @@ if __name__ == '__main__':
                   .all())
 
         for state, num in result:
-
-    # Count Rules in x state
+            # Count Rules in x state
             gauge_state = state_map.get(str(state.name), 'rules_' + str(state.name).lower())
             print('rules.count.%s %s' % (gauge_state, num))
 
@@ -118,7 +116,8 @@ if __name__ == '__main__':
             prom_labels.update(extra_prom_labels)
             rules_count_gauge.labels(**prom_labels).set(num)
 
-            monitor.record_gauge(name='rules.count.%s' % (gauge_state), value=num)
+            probe_metrics.gauge(name='rules.count.{state}',
+                                documentation='Number of rules in a given state').labels(state=gauge_state).set(num)
 
     # Count Rules in x state ordered by activity
         results = (session.query(models.ReplicationRule.state, models.ReplicationRule.activity, func.count(models.ReplicationRule.state))
@@ -158,9 +157,9 @@ if __name__ == '__main__':
         prom_labels.update(extra_prom_labels)
         not_ok_rules_gauge.labels(**prom_labels).set(result)
 
-        monitor.record_gauge(name='judge.total_not_OK_rules', value=result)
+        probe_metrics.gauge(name='judge.total_not_OK_rules', documentation='Number of not OK rules').set(result)
 
-    # Stuck cnt
+        # Stuck cnt
         query = (session.query(func.sum(models.ReplicationRule.locks_stuck_cnt))
                  .filter(models.ReplicationRule.state == RuleState.STUCK))
         result = query.scalar() or 0
@@ -171,9 +170,10 @@ if __name__ == '__main__':
         prom_labels.update(extra_prom_labels)
         stuck_cnt_gauge.labels(**prom_labels).set(result)
 
-        monitor.record_gauge(name='rules.no_of_files.total.sum_locks_stuck_cnt', value=result)
+        probe_metrics.gauge(name='rules.no_of_files.total.sum_locks_stuck_cnt',
+                            documentation='Number of stuck files').set(result)
 
-    # check left replicating files
+        # check left replicating files
         query = (session.query(func.sum(models.ReplicationRule.locks_replicating_cnt))
                  .filter(models.ReplicationRule.state.in_([RuleState.STUCK, RuleState.REPLICATING])))
         result = query.scalar() or 0
@@ -184,7 +184,8 @@ if __name__ == '__main__':
         prom_labels.update(extra_prom_labels)
         replicating_cnt_gauge.labels(**prom_labels).set(result)
 
-        monitor.record_gauge(name='rules.no_of_files.total.sum_locks_replicating_cnt', value=result)
+        probe_metrics.gauge(name='rules.no_of_files.total.sum_locks_replicating_cnt',
+                            documentation='Number of replicating files').set(result)
 
     # check stuck and replicating files which are more than X old
         suspended_rules_older_than_X_labels = ['age']
@@ -279,7 +280,8 @@ if __name__ == '__main__':
             stuck_locks_older_than_gauge.labels(**prom_labels).set(result)
             print(prom_labels, result)
 
-            monitor.record_gauge(name='rules.no_of_files.stuck.%s.sum_locks_stuck_cnt' % a_name, value=result)
+            probe_metrics.gauge(name='rules.no_of_files.stuck.{name}.sum_locks_stuck_cnt',
+                                documentation='Number of stuck files older than X').labels(name=a_name).set(result)
 
             # Number of Replicating files
 
@@ -292,8 +294,11 @@ if __name__ == '__main__':
             replicating_locks_older_than_gauge.labels(**prom_labels).set(result)
             print(prom_labels, result)
 
-            monitor.record_gauge(name='rules.no_of_files.replicating.%s.sum_locks_replicating_cnt' % a_name,
-                                 value=result)
+            (probe_metrics.gauge(name='rules.no_of_files.replicating.{name}.sum_locks_replicating_cnt',
+                                 documentation='Number of replicating files older than X')
+             .labels(name=a_name)
+             .set(result))
+
         if PROM_SERVERS:
             for server in PROM_SERVERS:
                 try:
@@ -306,4 +311,3 @@ if __name__ == '__main__':
     finally:
         session.remove()
     sys.exit(OK)
-    

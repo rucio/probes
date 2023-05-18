@@ -16,8 +16,11 @@ Probe to check the number of not OK rules per rse.
 import sys
 import traceback
 
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -38,7 +41,8 @@ if __name__ == "__main__":
                  group by {schema}rses.rse""".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, count in result:
-            monitor.record_gauge('not_OK_rules.%s' % rse, value=count)
+            probe_metrics.gauge('not_OK_rules.{rse}').labels(rse=rse).set(count)
+
         sql = """select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ {schema}rses.rse rse, COUNT (DISTINCT rule_id) \
                  from {schema}requests \
                  join {schema}rses on requests.dest_rse_id = rses.id \
@@ -47,7 +51,7 @@ if __name__ == "__main__":
                  group by {schema}rses.rse""".format(schema=schema)
         result = session.execute(sql).fetchall()
         for rse, count in result:
-            monitor.record_gauge('replicating_rules.%s' % rse, value=count)
+            probe_metrics.gauge('replicating_rules.{rse}').labels(rse=rse).set(count)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)

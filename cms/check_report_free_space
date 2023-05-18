@@ -16,8 +16,11 @@ Probe to check the free space at each rse.
 import sys
 import traceback
 
-from rucio.core import monitor
 from rucio.core.rse import list_rses, get_rse_usage
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -29,8 +32,9 @@ if __name__ == "__main__":
             for usage in limits:
                 if usage['source'] == 'rucio':
                     free_space = int(usage['total']) - int(usage['used'])
-                    monitor.record_gauge('judge.free_space.%s' % rse['rse'], value=free_space)
+                    probe_metrics.gauge('judge.free_space.{rse}').labels(rse=rse['rse']).set(free_space)
+
     except:
-        print (traceback.format_exc())
+        print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)

@@ -26,13 +26,16 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from sqlalchemy import func
-from rucio.db.sqla.constants import RuleState
-from rucio.core import monitor
-from rucio.db.sqla.constants import RequestType
-from rucio.db.sqla import models
-from rucio.db.sqla.session import get_session
 from rucio.common.config import config_get
+from rucio.db.sqla import models
+from rucio.db.sqla.constants import RequestType
+from rucio.db.sqla.constants import RuleState
+from rucio.db.sqla.session import get_session
+from sqlalchemy import func
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
 if PROM_SERVERS != '':
@@ -50,10 +53,11 @@ if __name__ == '__main__':
     registry = CollectorRegistry()
     labelnames = ['dst_rse']
     labelnames.extend(extra_prom_labels.keys())
-    missing_files_gauge = Gauge('rucio_judge_number_of_missing_files','Number of missing files in a RSE',
-                             labelnames=labelnames, registry=registry)
-    replicating_files_gauge = Gauge('rucio_judge_number_of_replicating_files', 'Number of files being replicated to a RSE',
+    missing_files_gauge = Gauge('rucio_judge_number_of_missing_files', 'Number of missing files in a RSE',
                                 labelnames=labelnames, registry=registry)
+    replicating_files_gauge = Gauge('rucio_judge_number_of_replicating_files',
+                                    'Number of files being replicated to a RSE',
+                                    labelnames=labelnames, registry=registry)
     status = OK
 
     try:
@@ -67,37 +71,39 @@ if __name__ == '__main__':
         results = query.all()
         print('Number of missing files per RSE')
         for rse, num in results:
-            #print(type(rse), rse, type(num), num)
+            # print(type(rse), rse, type(num), num)
             prom_labels = {'dst_rse': rse}
             prom_labels.update(extra_prom_labels)
             missing_files_gauge.labels(**prom_labels).set(num)
-            monitor.record_gauge(
-                name='judge.number_of_missing_files.%s' % rse,
-                value=num)
-            #print(rse, num)
+            probe_metrics.gauge(name='judge.number_of_missing_files.{rse}',
+                                documentation='Number of missing files in a RSE'
+                                ).labels(rse=rse).set(num)
+
+            # print(rse, num)
 
         query = (session.query(models.RSE.rse, func.count(models.Request.id))
-        .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
-        .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
-        .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
-        .filter(models.Request.request_type == RequestType.TRANSFER)
-        .filter(models.ReplicationRule.state == RuleState.REPLICATING).group_by(models.RSE.rse))
+                 .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                 .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                 .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                 .filter(models.Request.request_type == RequestType.TRANSFER)
+                 .filter(models.ReplicationRule.state == RuleState.REPLICATING).group_by(models.RSE.rse))
         results = query.all()
         print('Number of replicating files per RSE')
         for rse, num in results:
             prom_labels = {'dst_rse': rse}
             prom_labels.update(extra_prom_labels)
             replicating_files_gauge.labels(**prom_labels).set(num)
-            monitor.record_gauge(
-                name='judge.number_of_replicating_files.%s' % rse,
-                value=num)
+            probe_metrics.gauge(name='judge.number_of_replicating_files.{rse}',
+                                documentation='Number of files being replicated to a RSE'
+                                ).labels(rse=rse).set(num)
+
         if PROM_SERVERS:
             for server in PROM_SERVERS:
                 try:
                     push_to_gateway(server.strip(), job='check_number_of_missing_files', registry=registry)
                 except:
                     continue
-            #print(rse,num)
+            # print(rse,num)
     except Exception as error:
-        print (traceback.format_exc(), error)
+        print(traceback.format_exc(), error)
         sys.exit(UNKNOWN)
