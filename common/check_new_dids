@@ -20,10 +20,11 @@ import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from rucio.common.config import config_get
-from rucio.core import monitor
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
+
+from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -40,7 +41,7 @@ if __name__ == "__main__":
                         .with_hint(models.DataIdentifier, "INDEX_FFS(DIDS DIDS_IS_NEW_IDX)", 'oracle')
                         .filter(models.DataIdentifier.is_new.isnot(None)))
         result = get_count(query)
-        monitor.record_gauge('transmogrifier.new_dids', value=result)
+        probe_metrics.gauge(name='transmogrifier.new_dids').set(result)
         Gauge('transmogrifier_new_dids', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
