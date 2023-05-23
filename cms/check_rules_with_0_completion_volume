@@ -16,8 +16,11 @@ Probe to check the backlog of stuck rules which have not moved per rse.
 import sys
 import traceback
 
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -36,9 +39,8 @@ if __name__ == "__main__":
         for rse, bytes in result:
             if not bytes:
                 bytes = 0
-            monitor.record_gauge('judge.rules_with_0_completion_volume.%s' % rse, value=bytes)
+            probe_metrics.gauge('judge.rules_with_0_completion_volume.{rse}').labels(rse=rse).set(bytes)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
-

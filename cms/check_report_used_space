@@ -26,13 +26,13 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge
-from rucio.core import monitor
 from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
 from utils import common
 
+probe_metrics = common.probe_metrics
 PrometheusPusher = common.PrometheusPusher
 
 # Exit statuses
@@ -63,9 +63,10 @@ if __name__ == '__main__':
                     prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
                     prom_labels.update(extra_prom_labels)
                     used_space_gauge.labels(**prom_labels).set(usage['used'])
-                    monitor.record_gauge(
-                        name='judge.used_space_rucio.%s.%s.%s.%s' % (rse['rse'], country, rse_type, source),
-                        value=usage['used'])
+                    (probe_metrics.gauge(name='judge.used_space_rucio.{rse}.{country}.{rse_type}.{source}',
+                                         documentation='Space used at an RSE from various sources')
+                     .labels(rse=rse['rse'], country=country, rse_type=rse_type, source=source)
+                     .set(usage['used']))
                     print(rse['rse'], country, rse_type, source, usage['used'])
     except:
         print(traceback.format_exc())

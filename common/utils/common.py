@@ -14,7 +14,9 @@ from typing import Tuple, Dict, List, Optional
 
 from prometheus_client import push_to_gateway
 from rucio.common.config import config_get
+from rucio.core.monitor import MetricManager
 
+probe_metrics = MetricManager(prefix='rucio.probes')
 
 def get_prometheus_config() -> Tuple[List, str, Dict]:
     prom_servers = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
