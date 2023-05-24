@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
     try:
         session = get_session()
-        with PrometheusPusher(registry, job_name='check_expired_rules') as prometheus_config:
+        with PrometheusPusher(registry, job_name='check_report_used_space') as prometheus_config:
             extra_prom_labels = prometheus_config['labels']
             labelnames.extend(extra_prom_labels.keys())
 
