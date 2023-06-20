@@ -25,33 +25,21 @@ Probe to check used space.
 import sys
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge
 from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
 from utils import common
 
-probe_metrics = common.probe_metrics
 PrometheusPusher = common.PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 if __name__ == '__main__':
-    registry = CollectorRegistry()
-    labelnames = ['rse', 'country', 'rse_type', 'source']
-
     try:
         session = get_session()
-        with PrometheusPusher(registry, job_name='check_report_used_space') as prometheus_config:
-            extra_prom_labels = prometheus_config['labels']
-            labelnames.extend(extra_prom_labels.keys())
-
-            prefix: str = prometheus_config['prefix']
-            used_space_gauge = Gauge(prefix + 'report_used_space', 'Space used at an RSE from various sources',
-                                     labelnames=labelnames, registry=registry)
-
+        with PrometheusPusher() as manager:
             for rse in list_rses():
                 sources = get_rse_usage(rse['id'])
                 attributes = list_rse_attributes(rse['id'])
@@ -61,10 +49,8 @@ if __name__ == '__main__':
                 for usage in sources:
                     source = usage['source']
                     prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
-                    prom_labels.update(extra_prom_labels)
-                    used_space_gauge.labels(**prom_labels).set(usage['used'])
-                    (probe_metrics.gauge(name='judge.used_space_rucio.{rse}.{country}.{rse_type}.{source}',
-                                         documentation='Space used at an RSE from various sources')
+                    (manager.gauge(name='report_used_space.{rse}.{country}.{rse_type}.{source}',
+                                   documentation='Space used at an RSE from various sources')
                      .labels(rse=rse['rse'], country=country, rse_type=rse_type, source=source)
                      .set(usage['used']))
                     print(rse['rse'], country, rse_type, source, usage['used'])
