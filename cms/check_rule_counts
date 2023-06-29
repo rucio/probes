@@ -241,7 +241,7 @@ if __name__ == '__main__':
             suspended_rules_older_than_gauge.labels(**prom_labels).set(result)
             print(prom_labels, result)
 
-            monitor.record_gauge(name='rules.no_of_rules.suspended.%s.sum_locks_stuck_cnt' % a_name, value=result)
+            probe_metrics.gauge(name='rules.no_of_rules.suspended.{name}.sum_locks_stuck_cnt').labels(name=a_name).set(result)
 
             # Number of Stuck rules older than x
 
@@ -254,7 +254,7 @@ if __name__ == '__main__':
             stuck_rules_older_than_gauge.labels(**prom_labels).set(result)
             print(prom_labels, result)
 
-            monitor.record_gauge(name='rules.no_of_rules.stuck.%s.sum_locks_stuck_cnt' % a_name, value=result)
+            probe_metrics.gauge(name='rules.no_of_rules.stuck.{name}.sum_locks_stuck_cnt').labels(name=a_name).set(result)
 
             # Number of replicating rules older than x
 
@@ -267,7 +267,7 @@ if __name__ == '__main__':
             replicating_rules_older_than_gauge.labels(**prom_labels).set(result)
             print(prom_labels, result)
 
-            monitor.record_gauge(name='rules.no_of_rules.replicating.%s.sum_locks_stuck_cnt' % a_name, value=result)
+            probe_metrics.gauge(name='rules.no_of_rules.replicating.{name}.sum_locks_stuck_cnt').labels(name=a_name).set(result)
 
             # Number of Stuck files
 
