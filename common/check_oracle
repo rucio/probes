@@ -16,12 +16,13 @@ Probe to check Oracle.
 """
 from __future__ import print_function
 
+import re
 import sys
 
 import cx_Oracle
-
 from rucio.common.config import config_get
-from rucio.core import monitor
+
+from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     if not (user and password):
         try:
             upp = sql_connection.split('@')[0]  # scheme://user:password
-            up = upp.split('://')[1]            # user:password
+            up = upp.split('://')[1]  # user:password
             user, password = up.split(':')
         except:
             print('Cannot guess DB parameters')
@@ -62,14 +63,14 @@ AND mname.group_id = sysm.group_id
 ORDER BY inst_id, mname.metric_name, mname.metric_unit'''
         cursor.execute(query)
         for (metric, value) in cursor:
-            m = 'oracle.%s' % metric.replace(' ', '_')
+            safe_metric = metric.replace(' ', '_')  # Convert space to underscore
+            safe_metric = re.sub(r'\W+', '', safe_metric)  # Remove any other odd characters
+            m = 'oracle.%s' % safe_metric
             print(m, value, ' ')
-            monitor.record_gauge(stat=m, value=value)
+            probe_metrics.gauge(name=m).set(value)
     except:
         sys.exit(UNKNOWN)
     finally:
         cursor.close()
         connection.close()
-        # monitor.record_gauge(stat='judge.waiting_dids', value=result)
-        # print result
     sys.exit(OK)

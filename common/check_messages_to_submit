@@ -17,10 +17,10 @@ from __future__ import print_function
 import sys
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
 from rucio.common.config import config_get
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         session = get_session()
         result = session.execute(queue_sql).fetchall()
         print('queues.messages %s' % result[0][0])
-        monitor.record_gauge(stat='queues.messages', value=result[0][0])
+        probe_metrics.gauge(name='queues.messages').set(result[0][0])
         Gauge('hermes_queues_messages', '', registry=registry).set(result[0][0])
 
         if len(PROM_SERVERS):

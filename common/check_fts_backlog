@@ -13,8 +13,11 @@
  - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 """
 from __future__ import print_function
+
 import os
 import sys
+
+import requests
 import urllib3
 try:
     from urlparse import urlparse
@@ -22,14 +25,11 @@ except ImportError:
     from urllib.parse import urlparse
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-import requests
-
 from rucio.common.config import config_get, config_get_bool
-from rucio.core import monitor
-
 from rucio.core.distance import update_distances
-
 from rucio.db.sqla.session import BASE, get_session
+
+from utils.common import probe_metrics
 
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
@@ -138,9 +138,11 @@ if __name__ == "__main__":
                         activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
                         print('  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
                                                                        str(activities_str)))
-                monitor.record_gauge('fts3.%s.submitted' % hostname,
-                                     value=(summary['submitted'] + summary['active']
-                                            + summary['staging'] + summary['started']))
+                probe_metrics.gauge('fts3.{hostname}.submitted').labels(hostname=hostname).set(summary['submitted']
+                                                                                               + summary['active']
+                                                                                               + summary['staging']
+                                                                                               + summary['started'])
+
                 g.labels(**{'hostname': hostname}).set((summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
                 retvalue = OK
                 break

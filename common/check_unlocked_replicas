@@ -17,10 +17,10 @@ from __future__ import print_function
 import sys
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
 from rucio.common.config import config_get
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -50,12 +50,12 @@ if __name__ == "__main__":
         session = get_session()
         unlocked_sql = 'select  /*+ index_ffs(replicas REPLICAS_TOMBSTONE_IDX) */  count(1) from {schema}replicas where tombstone is not null'.format(schema=schema)
         result = session.execute(unlocked_sql).fetchone()[0]
-        monitor.record_gauge(stat='reaper.unlocked_replicas', value=result)
+        probe_metrics.gauge(name='reaper.unlocked_replicas').set(result)
         Gauge('reaper_unlocked_replicas', '', registry=registry).set(result)
         print(result)
         expired_sql = 'select  /*+ index_ffs(replicas REPLICAS_TOMBSTONE_IDX) */  count(1) from {schema}replicas where tombstone is not null and tombstone < sysdate - 2/24'.format(schema=schema)
         result = session.execute(expired_sql).fetchone()[0]
-        monitor.record_gauge(stat='reaper.expired_replicas', value=result)
+        probe_metrics.gauge(name='reaper.unlocked_replicas').set(result)
         Gauge('reaper_expired_replicas', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
