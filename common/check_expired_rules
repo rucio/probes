@@ -18,12 +18,12 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
 
 from utils import common
 
 PrometheusPusher = common.PrometheusPusher
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -41,12 +41,12 @@ if __name__ == "__main__":
             prefix: str = prometheus_config['prefix']
             expired_rules = 'select count(1) from {schema}rules where expires_at < sys_extract_utc(localtimestamp)'.format(schema=schema)
             result = session.execute(expired_rules).fetchone()[0]
-            monitor.record_gauge('judge.expired_rules', value=result)
+            probe_metrics.gauge('judge.expired_rules').set(result)
             Gauge(prefix + 'judge_expired_rules', '', registry=registry).set(result)
             lifetimed_rules = 'select count(1) from {schema}rules where expires_at > sys_extract_utc(localtimestamp)'.format(schema=schema)
             result = session.execute(lifetimed_rules).fetchone()[0]
             print(result)
-            monitor.record_gauge('judge.lifetimed_rules', value=result)
+            probe_metrics.gauge('judge.lifetimed_rules').set(result)
             Gauge(prefix + 'judge_lifetimed_rules', '', registry=registry).set(result)
 
     except:
