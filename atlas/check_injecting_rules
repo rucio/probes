@@ -15,18 +15,17 @@
 Probe to check the backlog of injecting rules.
 """
 
-from __future__ import print_function
-
 import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from rucio.common.config import config_get
-from rucio.core import monitor
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
+
+from utils import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -41,7 +40,7 @@ if __name__ == "__main__":
         session = get_session()
         query = session.query(models.ReplicationRule.scope).filter(models.ReplicationRule.state == RuleState.INJECT)
         result = get_count(query)
-        monitor.record_gauge(stat='judge.injecting_rules', value=result)
+        probe_metrics.gauge('judge.injecting_rules').set(result)
         Gauge('judge_injecting_rules', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
