@@ -184,10 +184,8 @@ for rse in RSES:
     try:
         if server:
             client.set_rse_limits(rse, 'MinFreeSpace', minfree, 'root')
-            client.set_rse_limits(rse, 'MaxBeingDeletedFiles', max_files_to_delete, 'root')
         else:
             client.set_rse_limits(rse, 'MinFreeSpace', minfree)
-            client.set_rse_limits(rse, 'MaxBeingDeletedFiles', max_files_to_delete)
     except Exception as error:
         print "Failed to set RSE limits for %s: %s" % (rse, str(error))
         continue
