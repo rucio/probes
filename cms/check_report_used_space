@@ -26,7 +26,7 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge
-from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes
+from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes, get_rse_limits
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
@@ -55,9 +55,22 @@ if __name__ == '__main__':
             for rse in list_rses():
                 sources = get_rse_usage(rse['id'])
                 attributes = list_rse_attributes(rse['id'])
+                limits = get_rse_limits(rse['id'])
                 country = attributes.get('country', 'UNKNOWN')
                 rse_type = session.query(models.RSE.rse_type).filter(models.RSE.id == rse['id']).scalar()
                 rse_type = str(rse_type).split('.', 1)[1]
+
+                # export and push `minfreespace` value from RSE limits
+                if limits.get('MinFreeSpace'):
+                    prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': 'minfreespace'}
+                    prom_labels.update(extra_prom_labels)
+                    used_space_gauge.labels(**prom_labels).set(limits.get('MinFreeSpace'))
+                    (probe_metrics.gauge(name='judge.used_space_rucio.{rse}.{country}.{rse_type}.minfreespace',
+                                         documentation='Space used at an RSE from various sources')
+                     .labels(rse=rse['rse'], country=country, rse_type=rse_type, source='minfreespace')
+                     .set(limits.get('minfreespace')))
+                    print(rse['rse'], country, rse_type, 'minfreespace', limits.get('minfreespace'))
+                        
                 for usage in sources:
                     source = usage['source']
                     prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': source}
