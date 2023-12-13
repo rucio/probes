@@ -55,8 +55,8 @@ max_unzipped_attachment_size = 100 * 1024
 zip_tmp_file = True  # works only if remove_tmp_file is False
 max_unzipped_tmp_file_size = 1 * 1024 * 1024
 
-always_report_email = 'tomas.javurek@cern.ch'
-gdp_emails = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch']
+always_report_email = 'fabio.luchetti@cern.ch'
+gdp_emails = ['atlas-adc-dpa@cern.ch', 'fabio.luchetti@cern.ch']
 from_email = 'atlas-adc-ddm-support@cern.ch'
 ddm_admin_accounts = ['ddmadmin', 'root']
 ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
@@ -65,7 +65,7 @@ ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
 # Specify the mails_to_test list of addresses of the users whose correspondence you want to check in test_mode.
 # The mail  which supposed to be sent to these addresses will be sent to tester_emails instead.
 # The full list of users emails can be found in the script log
-mails_to_test = ['atlas-adc-dpa@cern.ch', 'tomas.javurek@cern.ch', 'atlas-adc-panda-support@cern.ch',
+mails_to_test = ['atlas-adc-dpa@cern.ch', 'fabio.luchetti@cern.ch', 'atlas-adc-panda-support@cern.ch',
                  'atlas-adc-ddm-support@cern.ch']
 
 # tester_emails = ['Alexander.Bogdanchikov@cern.ch', david.cameron@cern.ch','dimitrios.christidis@cern.ch']
