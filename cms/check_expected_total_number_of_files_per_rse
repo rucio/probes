@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) 2013
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2022
+
+"""
+Probe to check the number of expected files per rse.
+"""
+
+import sys
+import traceback
+
+from rucio.db.sqla.session import BASE, get_session
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
+if __name__ == "__main__":
+    try:
+        session = get_session()
+        with PrometheusPusher() as manager:
+            sql = 'SELECT rse_expression, sum(length*copies) as sum_length  from {schema}DIDS join {schema}RULES on DIDS.name = RULES.name where state!=\'O\' and (length !=locks_ok_cnt ) and length is not null and locks_ok_cnt is not null group by rse_expression'.format(schema=schema)
+            result = session.execute(sql).fetchall()
+            for rse, count_files in result:
+                manager.gauge(name='judge.expected_number_of_files.{dst_rse}').labels(dst_rse=rse).set(count_files)
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)
+    sys.exit(OK)
