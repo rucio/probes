@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright European Organization for Nuclear Research (CERN)
 
@@ -17,8 +17,6 @@
 # Set quotas for physgroups
 # Set quotas for users on their country's localgroupdisk
 # Set quotas for all users on scratchdisk
-#
-# PY3K COMPATIBLE
 
 from __future__ import print_function
 import json
@@ -28,7 +26,7 @@ import requests
 
 from rucio.api.rse import get_rse, parse_rse_expression, get_rse_usage, list_rse_attributes
 from rucio.api.account import list_accounts
-from rucio.api.account_limit import set_account_limit
+from rucio.api.account_limit import set_local_account_limit
 from rucio.api.config import get
 from rucio.db.sqla.session import get_session
 from rucio.common.config import config_get
@@ -102,20 +100,20 @@ def set_group_quotas():
                     if (group, name) not in quotas:
                         print('Will add quota on RSE %s for group %s' % (name, group))
                         try:
-                            set_account_limit(group, name, ddmendpoint['quotas'][vomsgroup] * 1000 ** 4, 'root')
+                            set_local_account_limit(group, name, ddmendpoint['quotas'][vomsgroup] * 1000 ** 4, 'root')
                         except AccountNotFound as error:
                             print(error)
                     elif ddmendpoint['quotas'][vomsgroup] == 999999:
                         if quotas[(group, name)] != -1:
                             print('Infinite quota defined in CRIC for group %s on %s' % (group, name))
                             try:
-                                set_account_limit(group, name, -1, 'root')
+                                set_local_account_limit(group, name, -1, 'root')
                             except AccountNotFound as error:
                                 print(error)
                     elif quotas[(group, name)] != ddmendpoint['quotas'][vomsgroup] * 1000 ** 4:
                         print('On %s quota for %s differs Rucio : %s vs CRIC : %s' % (name, group, quotas[(group, name)], ddmendpoint['quotas'][vomsgroup] * 1000 ** 4))
                         try:
-                            set_account_limit(group, name, ddmendpoint['quotas'][vomsgroup] * 1000 ** 4, 'root')
+                            set_local_account_limit(group, name, ddmendpoint['quotas'][vomsgroup] * 1000 ** 4, 'root')
                         except AccountNotFound as error:
                             print(error)
 
@@ -151,7 +149,7 @@ rse_id in (select id from atlas_rucio.rses a, atlas_rucio.rse_attr_map b where a
                 for rse in quotas:
                     print('Will add quota for account %s on %s' % (account, rse))
                     try:
-                        set_account_limit(account, rse, quotas[rse], 'root')
+                        set_local_account_limit(account, rse, quotas[rse], 'root')
                     except AccountNotFound as error:
                         print(error)
 
@@ -161,7 +159,7 @@ rse_id in (select id from atlas_rucio.rses a, atlas_rucio.rse_attr_map b where a
                         if abs(accounts[account][rse] - quotas[rse]) > 1000:
                             print('%s %s : Defined quota %s different from expected quota %s' % (rse, account, accounts[account][rse], quotas[rse]))
                             try:
-                                set_account_limit(account, rse, quotas[rse], 'root')
+                                set_local_account_limit(account, rse, quotas[rse], 'root')
                             except AccountNotFound as error:
                                 print(error)
                     else:
@@ -171,7 +169,7 @@ rse_id in (select id from atlas_rucio.rses a, atlas_rucio.rse_attr_map b where a
                     if rse not in accounts[account]:
                         print('Will add quota for account %s on %s' % (account, rse))
                         try:
-                            set_account_limit(account, rse, quotas[rse], 'root')
+                            set_local_account_limit(account, rse, quotas[rse], 'root')
                         except AccountNotFound as error:
                             print(error)
 
@@ -280,7 +278,7 @@ def set_localgroupdisk_quotas(fraction, absolute):
                     if quota:
                         print("Set quota of %dTB on %s for %s" % (quota / 1000 ** 4, rse, account))
                         try:
-                            set_account_limit(account, rse, quota, 'root')
+                            set_local_account_limit(account, rse, quota, 'root')
                         except AccountNotFound as error:
                             print(error)
         except Exception as error:
