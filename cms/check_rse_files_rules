@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+# Copyright 2012-2020 CERN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2020
+
+"""
+Probe to check the number of expected files per rse.
+"""
+
+import sys
+import traceback
+
+from rucio.db.sqla import models
+from rucio.db.sqla.constants import RequestType
+from rucio.db.sqla.constants import RuleState
+from rucio.db.sqla.session import get_session
+from sqlalchemy import func
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if __name__ == '__main__':
+    status = OK
+
+    try:
+        session = get_session()
+        with PrometheusPusher() as manager:
+
+            # Get number of missing files per RSE
+            query = (session.query(models.RSE.rse, func.count(models.Request.id))
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state != RuleState.OK).group_by(models.RSE.rse))
+            results = query.all()
+            for rse, num in results:
+                manager.gauge(name='judge.number_of_missing_files.{rse}',
+                              documentation='Number of missing files in RSE'
+                              ).labels(rse=rse).set(num)
+
+            # Get number of replicating files per RSE
+            query = (session.query(models.RSE.rse, func.count(models.Request.id))
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state == RuleState.REPLICATING).group_by(models.RSE.rse))
+            results = query.all()
+            for rse, num in results:
+                manager.gauge(name='judge.number_of_replicating_files.{rse}',
+                              documentation='Number of files being replicated to RSE'
+                              ).labels(rse=rse).set(num)
+
+            # Get number of not OK rules per RSE
+            query = (session.query(models.RSE.rse, func.count(func.distinct(models.Request.rule_id)))
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state != RuleState.OK).group_by(models.RSE.rse))
+            results = query.all()
+
+            for rse, count in results:
+                manager.gauge(name='not_OK_rules.{rse}',
+                              documentation='Number of rules not in OK state for RSE').labels(rse=rse).set(count)
+
+            # Get number of replicating rules per RSE
+            query = (session.query(models.RSE.rse, func.count(func.distinct(models.Request.rule_id)))
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state == RuleState.REPLICATING).group_by(models.RSE.rse))
+            results = query.all()
+
+            for rse, count in results:
+                manager.gauge(name='replicating_rules.{rse}',
+                              documentation='Number of rules in replicating state for RSE').labels(rse=rse).set(count)
+
+            # Get amount of missing bytes per RSE
+            query = (session.query(models.RSE.rse, func.sum(models.Request.bytes), models.RSE.rse_type)
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state != RuleState.OK)
+                     .group_by(models.RSE.rse, models.RSE.rse_type))
+            results = query.all()
+            for rse, byte_sum, rse_type in results:
+                manager.gauge('missing_data.{rse_type}.{rse}',
+                              documentation='Missing bytes for RSE').labels(rse=rse, rse_type=rse_type).set(byte_sum)
+
+            # Get amount of replicating bytes per RSE
+            query = (session.query(models.RSE.rse, func.sum(models.Request.bytes), models.RSE.rse_type)
+                     .with_hint(models.Request, 'index_fss(%(name)s REQUESTS_TYP_STA_CRE_IDX)')
+                     .join(models.RSE, (models.Request.dest_rse_id == models.RSE.id))
+                     .join(models.ReplicationRule, (models.Request.rule_id == models.ReplicationRule.id))
+                     .filter(models.Request.request_type == RequestType.TRANSFER)
+                     .filter(models.ReplicationRule.state == RuleState.REPLICATING)
+                     .group_by(models.RSE.rse, models.RSE.rse_type))
+            results = query.all()
+            for rse, byte_sum, rse_type in results:
+                (manager.gauge('replicating_data.{rse_type}.{rse}', documentation='Replicating bytes for RSE')
+                 .labels(rse=rse, rse_type=rse_type)
+                 .set(byte_sum))
+    except Exception as error:
+        print(traceback.format_exc(), error)
+        sys.exit(UNKNOWN)
