@@ -75,14 +75,13 @@ if __name__ == '__main__':
 
             # Rule count per state and activity
             results = (session.query(models.ReplicationRule.state, models.ReplicationRule.activity, func.count(models.ReplicationRule.state))
-                        .filter(models.ReplicationRule.state != RuleState.OK)
                         .group_by(models.ReplicationRule.activity, models.ReplicationRule.state)
                         .with_hint(models.ReplicationRule, 'INDEX_FFS(rules RULES_PK)', 'oracle')
                         .all())
 
             for result in results:
                 manager.gauge(name='rule_count_per_state_and_activity.{state}.{activity}',
-                              documentation='Number of rules in a given state and activity').labels(state=result[0], activity=result[1]).set(result[2])
+                              documentation='Number of rules in a given state and activity').labels(state=result[0].name, activity=result[1]).set(result[2])
 
             
             # Lock count per state (STUCK and REPLICATING) and activity           
@@ -95,9 +94,9 @@ if __name__ == '__main__':
 
             for result in results:
                 manager.gauge(name='lock_count_per_state_and_activity.{state}.{activity}',
-                              documentation='Number of S/R locks by activity and state').labels(state='stuck', activity=result[0]).set(result[1])
+                              documentation='Number of S/R locks by activity and state').labels(state='STUCK', activity=result[0]).set(result[1])
                 manager.gauge(name='lock_count_per_state_and_activity.{state}.{activity}',
-                              documentation='Number of S/R locks by activity and state').labels(state='replicating', activity=result[0]).set(result[2])
+                              documentation='Number of S/R locks by activity and state').labels(state='REPLICATING', activity=result[0]).set(result[2])
 
             for nDays in older_than_n_days:
                 age = datetime.datetime.utcnow() - datetime.timedelta(days=nDays)
