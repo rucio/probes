@@ -1,56 +1,117 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+#!/usr/bin/env python3
+# Copyright 2012-2020 CERN
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # Authors:
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2020
+# - Maggie Voetberg <maggiev@fnal.gov>, 2024
 
-'''
-Probe to check the locked expired rules or datasets with locked rules
-'''
 
+"""
+Probe to check rules.
+"""
+
+import datetime
 import sys
+import traceback
+
+from rucio.db.sqla import models
+from rucio.db.sqla.constants import (RuleState)
 from rucio.db.sqla.session import get_session
+from sqlalchemy import func
+
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if __name__ == '__main__':
 
-def main():
-    '''
-    Probe to check the locked expired rules or datasets with locked rules
-    '''
-    status = OK
-    session = get_session()
+    ages = {
+            'created_24hours_ago': datetime.timedelta(days=1),
+            'created_1week_ago': datetime.timedelta(days=7),
+            'created_3weeks_ago': datetime.timedelta(days=21),
+        }
+
+    rule_state_map = {'REPLICATING': 'rules_replicating',
+                     'OK': 'rules_ok',
+                     'INJECT': 'rules_injecting',
+                     'STUCK': 'rules_stuck',
+                     'SUSPENDED': 'rules_suspend',
+                     'WAITING_APPROVAL': 'rules_waiting_approval', }
+
+    # Map rule state labels to tuple of lock state and rule state 
+    lock_state_map = {"stuck": (models.ReplicationRule.locks_stuck_cnt, [RuleState.STUCK]), 
+                     "replicating": (models.ReplicationRule.locks_replicating_cnt, [RuleState.STUCK, RuleState.REPLICATING])}
+
     try:
-        query = "select rawtohex(id), scope, name, rse_expression from atlas_rucio.rules where locked=1 and expires_at<sys_extract_utc(localtimestamp)"
-        print 'Locked expired rules'
-        for row in session.execute(query):
-            status = CRITICAL
-            print row[0], row[1], row[2]
-    except Exception as error:
-        print error
-        status = UNKNOWN
-        sys.exit(status)
-    try:
-        query = """select rawtohex(c.id), c.scope, c.name, c.rse_expression from atlas_rucio.rules c,
-                   (select a.scope, a.name from atlas_rucio.dids a
-                   where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
-                   and exists (select 1 from atlas_rucio.rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
-                   where c.scope=d.scope and c.name=d.name and locked=1"""
-        print 'Datasets expired with locked rules'
-        for row in session.execute(query):
-            status = CRITICAL
-            print row[0], row[1], row[2], row[3]
-    except Exception as error:
-        print error
-        status = UNKNOWN
-        sys.exit(status)
-    sys.exit(status)
+        session = get_session()
+        with PrometheusPusher() as manager: 
+            # check rules
+            result = (session.query(models.ReplicationRule.state, func.count(models.ReplicationRule.state))
+                            .group_by(models.ReplicationRule.state)
+                            .with_hint(models.ReplicationRule, 'INDEX_FFS(rules RULES_PK)', 'oracle')
+                            .all())
+
+            for state, num in result:
+                gauge_state = rule_state_map.get(str(state.name), 'rules_' + str(state.name).lower())
+
+                print('rules.count.%s %s' % (gauge_state, num))
+                manager.gauge('rules.count.{state}', 
+                               documentation="Number of rules in given state").labels(state=gauge_state).set(num)
+
+            query = session.query(func.count(models.ReplicationRule.scope)).filter(models.ReplicationRule.state != RuleState.OK)
+            result = query.scalar() or 0
+
+            print(f"rules.count.rules_not_OK {result}")
+            manager.gauge('rules.count.rules_{state}', 
+                          documentation="Number of rules in given state").labels(state="not_OK").set(result)
+
+            for state_name, states in lock_state_map.items(): 
+                
+                # Check total for stuck and replicating rules
+                query = (session.query(func.sum(states[0]))
+                                .filter(models.ReplicationRule.state.in_(states[1])))
+                result = query.scalar() or 0
+
+                print(f'rules.num_files.total.locks_{state_name} {result}')
+                manager.gauge(
+                    'rules.num_files.total.locks_{state_name}', 
+                    documentation="Number of files impacted by a rule with a lock in a given state"
+                              ).labels(state_name=state_name).set(result)
+
+                # check stuck and replicating files which are more than X old
+                for a_name, a_delta in ages.items():
+                    timeLimit = datetime.datetime.utcnow() - a_delta
+
+                    query = (session.query(func.sum(states[0]))
+                                    .filter(models.ReplicationRule.state.in_(states[1]))
+                                    .filter(models.ReplicationRule.created_at <= timeLimit))
+                    result = query.scalar() or 0
+
+                    print(f'rules.num_files.{a_name}.locks_{state_name} {result}')
+                    manager.gauge(
+                        'rules.num_files.{delta}.locks_{state_name}', 
+                        documentation="Number of files impacted by a rule with a lock in a given state over a given time period"
+                                  ).labels(delta=a_name, state_name=state_name).set(result)
 
 
-if __name__ == "__main__":
-    main()
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)
+    finally:
+        session.remove()
+    sys.exit(OK)
