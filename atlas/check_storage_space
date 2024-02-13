@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2012-2020 CERN for the benefit of the ATLAS collaboration.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,13 +26,11 @@ import os
 import sys
 
 import gfal2
-import requests
 
-from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import RSEProtocolNotSupported
 from rucio.rse import rsemanager as rsemgr
-from rucio.api.rse import list_rse_attributes, get_rse
+from rucio.api.rse import list_rses, list_rse_attributes, get_rse, set_rse_usage
 
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
@@ -61,47 +59,46 @@ def get_space_usage(rse_name):
     :returns: a list with dict containing 'totalsize' and 'unusedsize'
 
     """
-    dest = '/tmp/rucio-gsiftp-site-size_' + rse_name
-    space_usage_url = ''
-    # url of space usage json, woud be nicer to have it in rse_settings
-    agis = requests.get('http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json').json()
-    agis_token = ''
-    for res in agis:
-        if rse_name == res['name']:
-            agis_token = res['token']
-            space_usage_url = res['space_usage_url']
-    print space_usage_url
-    if os.path.exists(dest):
-        os.remove(dest)
-    ctx = gfal2.creat_context()
-    ctx.set_opt_string_list("SRM PLUGIN", "TURL_PROTOCOLS", ["gsiftp", "rfio", "gsidcap", "dcap", "kdcap"])
-    params = ctx.transfer_parameters()
-    params.timeout = 3600
-    ret = ctx.filecopy(params, str(space_usage_url), str('file://' + dest))
-    if ret == 0:
-        data_file = open(dest)
-        data = json.load(data_file)
-        data_file.close()
-        if 'storageservice' in data:
-            return consume_wlcg_json(data, agis_token)
-        else:
-            return consume_atlas_json(data, agis_token)
+    rse_attributes = list_rse_attributes(rse_name)
+    space_usage_url = rse_attributes['srr_url']
+    space_usage_key = rse_attributes['spacetoken']
+
+    if space_usage_url not in CACHE:
+        print(f'Downloading {space_usage_url}')
+        ctx = gfal2.creat_context()
+        ctx.set_opt_integer('CORE', 'NAMESPACE_TIMEOUT', 60)
+
+        handle = ctx.open(space_usage_url, 'r')
+        content = b''
+        while True:
+            chunk = handle.read_bytes(65000)
+            if not chunk:
+                break
+            content += chunk
+
+        CACHE[space_usage_url] = json.loads(content.decode())
+
+    data = CACHE[space_usage_url]
+    if 'storageservice' in data:
+        return consume_wlcg_json(data, space_usage_key)
+    else:
+        return consume_atlas_json(data, space_usage_key)
 
 
-def get_space(rsename, protocol, client):
+def get_space(rsename, protocol):
     retvalue = OK
     rse_settings = rsemgr.get_rse_info(rsename)
     if rse_settings['protocols']:
         schemes = [domain['scheme'] for domain in rse_settings['protocols']]
         if protocol == 'json':
-            print 'Running on %s, using json method' % (rsename)
+            print(f'Running on {rsename}, using json method')
             try:
                 totalsize, unusedsize = get_space_usage(rsename)
-                freesize = long(unusedsize)
-                totalsize = long(totalsize)
+                freesize = int(unusedsize)
+                totalsize = int(totalsize)
                 usedsize = totalsize - freesize
             except Exception as error:
-                print error
+                print(error)
                 retvalue = WARNING
         else:
             if 'srm' not in schemes:
@@ -109,23 +106,22 @@ def get_space(rsename, protocol, client):
             try:
                 global_status, ret = rsemgr.get_space_usage(rse_settings, protocol)
                 if global_status:
-                    totalsize = long(ret["totalsize"])
-                    freesize = long(ret["unusedsize"])
+                    totalsize = int(ret["totalsize"])
+                    freesize = int(ret["unusedsize"])
                     usedsize = totalsize - freesize
                 else:
-                    print "Failed to get rse(%s) space information: %s" % (rsename, str(ret))
+                    print(f'Failed to get rse({rsename}) space information: {ret!s}')
                     retvalue = WARNING
             except RSEProtocolNotSupported as error:
-                print 'Protocol %s not found on %s' % (protocol, rsename)
+                print(f'Protocol {protocol} not found on {rsename}')
                 retvalue = WARNING
             except Exception as error:
-                print "Failed to get rse(%s) space information: %s" % (rsename, str(error))
+                print('Failed to get rse({rsename}) space information: {error!s}')
                 retvalue = WARNING
 
         if retvalue == OK:
-            print "Update RSE %s space usage (usedsize: %s, freesize: %s)" % (rsename, usedsize, freesize)
-            client.set_rse_usage(rsename, protocol, usedsize, freesize)
-            client.set_rse_usage(rsename, 'storage', usedsize, freesize)
+            print(f'Update RSE {rsename} space usage (usedsize: {usedsize}, freesize: {freesize})')
+            set_rse_usage(rsename, 'storage', usedsize, freesize, 'root')
             return retvalue
     return WARNING
 
@@ -133,6 +129,7 @@ def get_space(rsename, protocol, client):
 if __name__ == "__main__":
 
     CLOUD = sys.argv[1]
+    CACHE = {}
 
     exitvalue = OK
     retvalue = OK
@@ -142,22 +139,18 @@ if __name__ == "__main__":
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
     except Exception as error:
-        print "Failed to get proxy from rucio.cfg"
+        print('Failed to get proxy from rucio.cfg')
 
-    CLIENT = Client()
-    RSES = CLIENT.list_rses('cloud=%s' % CLOUD)
-    for rse in sorted(RSES):
-        rsename = rse['rse']
-        print rsename
+    for rsename in sorted(rse['rse'] for rse in list_rses({'cloud': CLOUD})):
+        print(rsename)
         rse_info = get_rse(rsename)
         if rse_info['availability_read']:
-            attr = list_rse_attributes(rsename)
-            if 'space_usage_method' in attr.keys():
-                retvalue = get_space(rsename, protocol=attr['space_usage_method'], client=CLIENT)
+            if 'srr_url' in list_rse_attributes(rsename):
+                retvalue = get_space(rsename, protocol='json')
             else:
-                retvalue = get_space(rsename, protocol='srm', client=CLIENT)
+                retvalue = get_space(rsename, protocol='srm')
         else:
-            print '%s excluded for read. Skipping storage space collection' % rsename
+            print(f'{rsename} excluded for read. Skipping storage space collection')
 
         exitvalue = max(exitvalue, retvalue)
     sys.exit(exitvalue)

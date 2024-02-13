@@ -29,6 +29,7 @@ from utils import common
 
 PrometheusPusher = common.PrometheusPusher
 
+
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 urllib3.disable_warnings()
@@ -114,6 +115,7 @@ if __name__ == "__main__":
                             se_matrix[(src, dst)]['mbps_link'] += channel['current']
                         except Exception:
                             pass
+
                         if CHECK_BUSY and 'submitted' in channel and channel['submitted'] >= busylimit:
                             url_activities = '%s/fts3/ftsmon/config/activities/%s?source_se=%s&dest_se=%s' % (
                             ftshost, VO,
@@ -156,6 +158,7 @@ if __name__ == "__main__":
             if retvalue == CRITICAL:
                 print("All attempts failed. %s" % errmsg)
             WORST_RETVALUE = max(retvalue, WORST_RETVALUE)
+
 
     if not UPDATE_DIST:
         sys.exit(WORST_RETVALUE)

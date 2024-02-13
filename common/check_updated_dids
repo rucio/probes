@@ -17,8 +17,10 @@ Probe to check the backlog of updated dids.
 import sys
 import traceback
 
+
 from prometheus_client import CollectorRegistry, Gauge
 from rucio.core import monitor
+
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
@@ -26,6 +28,7 @@ from rucio.db.sqla.util import get_count
 from utils import common
 
 PrometheusPusher = common.PrometheusPusher
+
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -40,6 +43,7 @@ if __name__ == "__main__":
             result = get_count(query)
             monitor.record_gauge('judge.updated_dids', value=result)
             Gauge(prefix + 'judge_updated_dids', '', registry=registry).set(result)
+
 
         # created_at, count, max, min, avg, stdev = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         # result = session.execute('select * from atlas_rucio.concurency_stats where created_at > sysdate - 1/1440')

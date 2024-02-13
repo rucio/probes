@@ -16,6 +16,7 @@ Probe to check the queues of messages to submit by Hermes to the broker
 
 import sys
 
+
 from prometheus_client import CollectorRegistry, Gauge
 from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
@@ -23,6 +24,7 @@ from rucio.db.sqla.session import BASE, get_session
 from utils import common
 
 PrometheusPusher = common.PrometheusPusher
+
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -44,6 +46,7 @@ if __name__ == "__main__":
             print('queues.messages %s' % result[0][0])
             monitor.record_gauge(stat='queues.messages', value=result[0][0])
             Gauge(prefix + 'hermes_queues_messages', '', registry=registry).set(result[0][0])
+
 
         if result[0][0] > 100000:
             sys.exit(WARNING)

@@ -15,6 +15,7 @@ import sys
 import traceback
 
 from rucio.client import Client
+from rucio.common.config import config_get
 from rucio.common.exception import RSENotFound
 
 
@@ -25,16 +26,23 @@ OK = 0
 
 if __name__ == '__main__':
 
-    url = 'http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json'
-    resp = requests.get(url=url)
+    try:
+        PROXY = config_get('nagios', 'proxy')
+    except Exception as error:
+        print(error)
+        print("Failed to get proxy from rucio.cfg")
+        sys.exit(CRITICAL)
+
+    url = 'https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json&state=ANY&site_state=ANY&rcsite_state=ANY'
+    resp = requests.get(url=url, verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY)
     data = json.loads(resp.content)
     retvalue = OK
-    agis_rses = []
+    cric_rses = []
 
     client = Client()
-    for rse in data:
-        if rse['name'] not in agis_rses:
-            agis_rses.append(rse['name'])
+    for rse in data.values():
+        if rse['name'] not in cric_rses:
+            cric_rses.append(rse['name'])
         notify = False
         if rse['state'] == 'DISABLED' or rse['site_state'] == 'DISABLED':
             notify = True
@@ -51,10 +59,10 @@ if __name__ == '__main__':
                 errno, errstr = sys.exc_info()[:2]
                 print 'Interrupted processing with %s %s %s.' % (errno, errstr, trcbck)
     for rse in client.list_rses():
-        if rse['rse'] not in agis_rses:
+        if rse['rse'] not in cric_rses:
             rse_attr = client.list_rse_attributes(rse['rse'])
             if not ('is_stagingarea' in rse_attr and rse_attr['is_stagingarea']):
-                print '%s is not defined in AGIS !!!' % (rse['rse'])
+                print '%s is not defined in CRIC !!!' % (rse['rse'])
                 retvalue = CRITICAL
 
     sys.exit(retvalue)

@@ -7,17 +7,20 @@
 #
 # Authors:
 # - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
-# - Eric Vaandering, <ewv@fnal.gov>, 2021
+# - Eric Vaandering, <ewv@fnal.gov>, 2022
 
 """
-Probe to check the backlog of stuck rules which have not moved per rse.
+Probe to check the number of expected files per rse.
 """
 
 import sys
 import traceback
 
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -30,15 +33,12 @@ else:
 if __name__ == "__main__":
     try:
         session = get_session()
-        sql = 'SELECT rse_expression,sum(bytes*copies) as sum_bytes FROM {schema}DIDS join {schema}RULES on DIDS.name = RULES.name where (state!=\'O\' and locks_ok_cnt=0) group by rse_expression'.format(
-            schema=schema)
-        result = session.execute(sql).fetchall()
-        for rse, bytes in result:
-            if not bytes:
-                bytes = 0
-            monitor.record_gauge('judge.rules_with_0_completion_volume.%s' % rse, value=bytes)
+        with PrometheusPusher() as manager:
+            sql = 'SELECT rse_expression, sum(length*copies) as sum_length  from {schema}DIDS join {schema}RULES on DIDS.name = RULES.name where state!=\'O\' and (length !=locks_ok_cnt ) and length is not null and locks_ok_cnt is not null group by rse_expression'.format(schema=schema)
+            result = session.execute(sql).fetchall()
+            for rse, count_files in result:
+                manager.gauge(name='judge.expected_number_of_files.{dst_rse}').labels(dst_rse=rse).set(count_files)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
-

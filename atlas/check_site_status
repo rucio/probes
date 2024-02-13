@@ -14,12 +14,9 @@
 # limitations under the License.
 #
 # Authors:
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2019
+# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2022
 # - Mario Lassnig <mario.lassnig@cern.ch>, 2020
 #
-# PY3K COMPATIBLE
-
-from __future__ import print_function
 
 import json
 import os
@@ -28,7 +25,7 @@ import sys
 import requests
 
 from rucio.common.config import config_get
-from rucio.core.rse import list_rses, update_rse, get_rse_protocols
+from rucio.api.rse import list_rses, update_rse, get_rse_protocols
 from rucio.transfertool.fts3 import FTS3Transfertool
 
 
@@ -58,30 +55,30 @@ if __name__ == '__main__':
         print("Failed to get ftshosts")
         STATUS = WARNING
 
-    URL = 'http://atlas-agis-api.cern.ch/request/ddmendpointstatus/query/list/?json'
-    RESP = requests.get(url=URL)
+    URL = 'https://atlas-cric.cern.ch/api/atlas/ddmendpointstatus/query/?json'
+    RESP = requests.get(url=URL, verify='/etc/pki/tls/certs/ca-bundle.crt', cert=PROXY)
     DATA = json.loads(RESP.content)
-    MAPPING = {'r': 'availability_read', 'w': 'availability_write', 'd': 'availability_delete'}
+    MAPPING = {'read_wan': 'availability_read', 'write_wan': 'availability_write', 'delete_wan': 'availability_delete'}
     EXCLUDED_SITES = {'availability_read': [], 'availability_write': [], 'availability_delete': []}
     DOWNTIMES = {}
     for site in DATA:
         for activity in DATA[site]:
-            if activity in ['r', 'w', 'd']:
+            if activity in ['read_wan', 'write_wan', 'delete_wan']:
                 try:
                     if DATA[site][activity]['status']['value'] == 'OFF':
                         EXCLUDED_SITES[MAPPING[activity]].append(site)
-                        if DATA[site][activity]['status']['provider'] == 'AGIS' and DATA[site][activity]['status']['reason'].find('https://goc.egi.eu/portal/index.php?Page_Type=Downtime') > -1:
+                        if DATA[site][activity]['status']['provider'] == 'DOWNTIME':
                             DOWNTIMES[site] = DATA[site][activity]['status']['reason']
                 except KeyError as error:
                     print(error)
 
-    URL = 'http://atlas-agis-api.cern.ch/request/ddmendpoint/query/list/?json&state=ACTIVE&site_state=ACTIVE'
-    RESP = requests.get(url=URL)
+    URL = 'https://atlas-cric.cern.ch/api/atlas/ddmendpoint/query/?json'
+    RESP = requests.get(url=URL, verify='/etc/pki/tls/certs/ca-bundle.crt')
     DATA = json.loads(RESP.content)
-    AGIS_RSES = []
-    for rse in DATA:
-        if (rse['name'] not in AGIS_RSES) and not (rse['state'] == 'DISABLED' or rse['site_state'] == 'DISABLED'):
-            AGIS_RSES.append(rse['name'])
+    CRIC_RSES = []
+    for rse in DATA.values():
+        if (rse['name'] not in CRIC_RSES) and not (rse['state'] == 'DISABLED' or rse['site_state'] == 'DISABLED'):
+            CRIC_RSES.append(rse['name'])
 
     # Exclusion
     for activity in EXCLUDED_SITES:
@@ -90,11 +87,11 @@ if __name__ == '__main__':
                 print('%s will be excluded for %s' % (site['rse'], activity))
                 try:
                     if not DRYRUN:
-                        update_rse(site['rse'], {activity: False})
+                        update_rse(site['rse'], {activity: False}, issuer='root')
                         if activity in ['availability_write']:
                             for rse in EXCLUDED_SITES[activity]:
                                 if rse in DOWNTIMES:
-                                    protocols = get_rse_protocols(rse)
+                                    protocols = get_rse_protocols(rse, issuer='root')
                                     for prot in protocols['protocols']:
                                         if 'third_party_copy' in prot['domains']['wan']:
                                             se = '%s://%s' % (prot['scheme'], prot['hostname'])
@@ -110,15 +107,15 @@ if __name__ == '__main__':
     for activity in EXCLUDED_SITES:
         for site in list_rses({activity: False}):
             rse = site['rse']
-            if rse not in AGIS_RSES:
-                print('%s does not exist in AGIS' % (rse))
+            if rse not in CRIC_RSES:
+                print('%s does not exist in CRIC' % (rse))
                 continue
             if rse not in EXCLUDED_SITES[activity]:
                 print('%s will be included for %s' % (rse, activity))
                 try:
                     if not DRYRUN:
-                        update_rse(rse, {activity: True})
-                        protocols = get_rse_protocols(rse)
+                        update_rse(rse, {activity: True}, issuer='root')
+                        protocols = get_rse_protocols(rse, issuer='root')
                         for prot in protocols['protocols']:
                             if 'third_party_copy' in prot['domains']['wan']:
                                 se = '%s://%s' % (prot['scheme'], prot['hostname'])
@@ -142,7 +139,7 @@ if __name__ == '__main__':
 
     SES = []
     for rse in DOWNTIMES:
-        protocols = get_rse_protocols(rse)
+        protocols = get_rse_protocols(rse, issuer='root')
         for prot in protocols['protocols']:
             if 'third_party_copy' in prot['domains']['wan']:
                 se = '%s://%s' % (prot['scheme'], prot['hostname'])

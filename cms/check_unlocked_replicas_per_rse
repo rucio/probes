@@ -26,13 +26,15 @@ Probe to check the backlog of unlocked replicas per RSE.
 """
 
 import sys
-from datetime import datetime
-from datetime import timedelta
+from datetime import (datetime, timedelta)
 
-from rucio.core import monitor
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 from sqlalchemy import func
+
+from utils import common
+
+probe_metrics = common.probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -43,23 +45,23 @@ if __name__ == '__main__':
     try:
         session = get_session()
         query = (session.query(models.RSE.rse, func.count(models.RSEFileAssociation.name))
-                        .with_hint(models.RSEFileAssociation, 'index_fss(%(name)s REPLICAS_TOMBSTONE_IDX)')
-                        .join(models.RSE, (models.RSEFileAssociation.rse_id == models.RSE.id))
-                        .filter(models.RSEFileAssociation.tombstone != None).group_by(models.RSE.rse))
+                 .with_hint(models.RSEFileAssociation, 'index_fss(%(name)s REPLICAS_TOMBSTONE_IDX)')
+                 .join(models.RSE, (models.RSEFileAssociation.rse_id == models.RSE.id))
+                 .filter(models.RSEFileAssociation.tombstone != None).group_by(models.RSE.rse))
         result = query.all()
         print('Number of unlocked replicas per RSE')
         for rse, num in result:
-            monitor.record_gauge('reaper.unlocked_rse_replicas.%s' % rse, value=num)
+            probe_metrics.gauge('reaper.unlocked_rse_replicas.{rse}').labels(rse=rse).set(num)
             print(rse, num)
         query = (session.query(models.RSE.rse, func.count(models.RSEFileAssociation.name))
-                        .with_hint(models.RSEFileAssociation, 'index_fss(%(name)s REPLICAS_TOMBSTONE_IDX)')
-                        .join(models.RSE, (models.RSEFileAssociation.rse_id == models.RSE.id))
-                        .filter(models.RSEFileAssociation.tombstone != None)
-                        .filter(models.RSEFileAssociation.tombstone < datetime.utcnow() - t1)
-                        .group_by(models.RSE.rse))
+                 .with_hint(models.RSEFileAssociation, 'index_fss(%(name)s REPLICAS_TOMBSTONE_IDX)')
+                 .join(models.RSE, (models.RSEFileAssociation.rse_id == models.RSE.id))
+                 .filter(models.RSEFileAssociation.tombstone != None)
+                 .filter(models.RSEFileAssociation.tombstone < datetime.utcnow() - t1)
+                 .group_by(models.RSE.rse))
         print('Number of expired replicas per RSE')
         for rse, num in result:
-            monitor.record_gauge('reaper.expired_rse_replicas.%s' % rse, value=num)
+            probe_metrics.gauge('reaper.expired_rse_replicas.{rse}').labels(rse=rse).set(num)
             print(rse, num)
     except Exception as error:
         print(error)

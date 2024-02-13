@@ -41,14 +41,18 @@ if __name__ == "__main__":
                               deleted=0) a
                   LEFT OUTER JOIN
                       (
-                          SELECT
+                          SELECT /*+  INDEX_FFS(replicas REPLICAS_TOMBSTONE_IDX) */
                               rse_id,
                               COUNT(1)   AS files,
                               SUM(bytes) AS bytes
                           FROM
-                              ATLAS_RUCIO.ADG_ONLY_SCAN_REPLICAS
+                              ATLAS_RUCIO.REPLICAS
                           WHERE
-                                  tombstone IS NOT NULL
+                              (
+                                  CASE
+                                      WHEN tombstone IS NOT NULL
+                                      THEN rse_id
+                                  END) IS NOT NULL
                               AND tombstone < sys_extract_utc(localtimestamp) GROUP BY rse_id) b
                           ON
                               a.rse_id=b.rse_id)

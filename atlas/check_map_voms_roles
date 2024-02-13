@@ -41,7 +41,7 @@ if __name__ == '__main__':
     STATUS = OK
     NBUSERS = 0
     CLIENT = Client()
-    ADMIN = VOMSAdminProxy(vo='atlas', host='voms2.cern.ch', port=8443,
+    ADMIN = VOMSAdminProxy(vo='atlas', host='lcg-voms2.cern.ch', port=8443,
                            user_cert=CERT, user_key=KEY)
     for account in ACCOUNT_MAP:
         NBUSERS = 0

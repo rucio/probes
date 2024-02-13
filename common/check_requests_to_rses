@@ -17,8 +17,9 @@ import datetime
 import sys
 import time
 
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
+
+from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -45,7 +46,8 @@ if __name__ == "__main__":
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print "requests.%s.%s %s" % (state, rse, num)
-            monitor.record_gauge(stat='%s.requests.%s.%s' % (scope, state, rse), value=num)
+            (probe_metrics.gauge(name='{scope}.requests.{state}.{rse}')
+                          .labels(scope=scope, state=state, rse=rse).set(num))
 
         # check left requests which are 12 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=12)
@@ -55,7 +57,8 @@ if __name__ == "__main__":
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.12Hours_old.%s.%s %s' % (state, rse, num)
-            monitor.record_gauge(stat='%s.requests.12Hours_old.%s.%s' % (scope, state, rse), value=num)
+            (probe_metrics.gauge(name='{scope}.requests.12Hours_old.{state}.{rse}')
+                          .labels(scope=scope, state=state, rse=rse).set(num))
 
         # check left requests which are 24 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
@@ -65,7 +68,8 @@ if __name__ == "__main__":
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.24Hours_old.%s.%s %s' % (state, rse, num)
-            monitor.record_gauge(stat='%s.requests.24Hours_old.%s.%s' % (scope, state, rse), value=num)
+            (probe_metrics.gauge(name='{scope}.requests.24Hours_old.{state}.{rse}')
+                          .labels(scope=scope, state=state, rse=rse).set(num))
 
         # check left requests which are 48 hours old to different sites
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=48)
@@ -75,7 +79,8 @@ if __name__ == "__main__":
         result = session.execute(sql).fetchall()
         for rse, state, num in result:
             # print 'requests.48Hours_old.%s.%s %s' % (state, rse, num)
-            monitor.record_gauge(stat='%s.requests.48Hours_old.%s.%s' % (scope, state, rse), value=num)
+            (probe_metrics.gauge(name='{scope}.requests.48Hours_old.{state}.{rse}')
+                          .labels(scope=scope, state=state, rse=rse).set(num))
 
     except:
         sys.exit(UNKNOWN)

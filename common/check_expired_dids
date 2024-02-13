@@ -18,16 +18,22 @@ from __future__ import print_function
 import sys
 import traceback
 
+
 from datetime import datetime
-from prometheus_client import CollectorRegistry, Gauge
 from rucio.core import monitor
+
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from rucio.common.config import config_get
+
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
 
-from utils import common
 
 PrometheusPusher = common.PrometheusPusher
+
+from utils.common import probe_metrics
+
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -48,6 +54,7 @@ if __name__ == "__main__":
             Gauge(prefix + 'undertaker_expired_dids', '', registry=registry).set(result)
 
             print(result)
+
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)

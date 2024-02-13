@@ -50,6 +50,7 @@ if __name__ == "__main__":
             monitor.record_gauge('judge.stuck_rules_with_missing_source_replica', value=result)
             Gauge(prefix + 'judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
 
+
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)

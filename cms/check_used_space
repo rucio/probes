@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# Copyright 2012-2020 CERN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2021
+# - Panos Paparrigopoulos, <panos.paparrigopoulos@cern.ch>, 2024
+
+"""
+Probe to check used space.
+"""
+
+import sys
+import traceback
+
+from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes, get_rse_limits
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if __name__ == '__main__':
+    try:
+        session = get_session()
+        with PrometheusPusher() as manager:
+            for rse in list_rses():
+                sources = get_rse_usage(rse['id'])
+                attributes = list_rse_attributes(rse['id'])
+                country = attributes.get('country', 'UNKNOWN')
+                rse_type = session.query(models.RSE.rse_type).filter(models.RSE.id == rse['id']).scalar()
+                rse_type = str(rse_type).split('.', 1)[1]
+                limits = get_rse_limits(rse['id'])
+                rucio_used = None
+                static_used = None
+                free_space = None
+                prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': ''}
+                label_names = ['rse', 'country', 'rse_type', 'source']
+                for usage in sources:
+                    
+                    # Calculate free rucio space of RSE and push it
+                    if usage['source'] == 'rucio':
+                        prom_labels['source'] = 'rucio_free_space'
+                        rucio_used = usage['used']
+                        rucio_free_space = int(usage['total']) - int(usage['used'])
+                        (manager.gauge(name='rucio_free_space',
+                                   documentation='Space used at an RSE from various sources', labelnames=label_names)
+                         .labels(**prom_labels)
+                         .set(rucio_free_space))
+                        print(rse['rse'], country, rse_type, 'rucio_free_space', rucio_free_space)
+                        
+                    # Calculate total free space of RSE (static-rucio) and push it
+                    if usage['source'] == 'static':
+                        static_used = usage['used']
+                    
+                    if rucio_used and static_used:
+                        prom_labels['source'] = 'free_space'
+                        free_space = int(static_used) - int(rucio_used)
+                        (manager.gauge(name='free_space',
+                                   documentation='Space used at an RSE from various sources', labelnames=label_names)
+                         .labels(**prom_labels)
+                         .set(free_space))
+                        print(rse['rse'], country, rse_type, 'free_space', free_space)
+
+                    source = usage['source']
+                    prom_labels['source'] = source    
+                    (manager.gauge(name='{source}',
+                                   documentation='Space used at an RSE from various sources', labelnames=label_names)
+                     .labels(**prom_labels)
+                     .set(usage['used']))
+                    print(rse['rse'], country, rse_type, source, usage['used'])
+                      
+                # export and push `MinFreeSpace` value from RSE limits
+                if limits.get('MinFreeSpace'):
+                    prom_labels['source'] = 'min_free_space'              
+                    (manager.gauge(name='min_free_space',
+                                   documentation='Space used at an RSE from various sources', labelnames=label_names)
+                         .labels(**prom_labels)
+                         .set(limits.get('MinFreeSpace')))
+                    print(rse['rse'], country, rse_type, 'min_free_space', limits.get('MinFreeSpace'))
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)

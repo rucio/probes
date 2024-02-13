@@ -24,13 +24,16 @@ Probe to check the number of expected files per rse.
 from __future__ import print_function
 
 import sys
-from datetime import datetime
-from rucio.db.sqla.constants import RuleState
-from rucio.core import monitor
+import traceback
+
 from rucio.db.sqla import models
+from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
 from sqlalchemy import func
 
+from utils import common
+
+probe_metrics = common.probe_metrics
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
@@ -39,15 +42,17 @@ if __name__ == '__main__':
     session = get_session()
     try:
         print('Number of expected files per RSE expression')
-        query = (session.query(models.ReplicationRule.rse_expression, func.sum(models.ReplicationRule.copies*models.DataIdentifier.length).label('sum_length'))
-        .join(models.DataIdentifier, (models.ReplicationRule.name == models.DataIdentifier.name))
-        .filter(models.ReplicationRule.state != RuleState.OK)
-        .filter(models.DataIdentifier.length != models.ReplicationRule.locks_ok_cnt)
-        .filter(models.DataIdentifier.length != None)
-        .filter(models.ReplicationRule.locks_ok_cnt != None).group_by(models.ReplicationRule.rse_expression))
+        query = (session.query(models.ReplicationRule.rse_expression,
+                               func.sum(models.ReplicationRule.copies * models.DataIdentifier.length).label(
+                                   'sum_length'))
+                 .join(models.DataIdentifier, (models.ReplicationRule.name == models.DataIdentifier.name))
+                 .filter(models.ReplicationRule.state != RuleState.OK)
+                 .filter(models.DataIdentifier.length != models.ReplicationRule.locks_ok_cnt)
+                 .filter(models.DataIdentifier.length != None)
+                 .filter(models.ReplicationRule.locks_ok_cnt != None).group_by(models.ReplicationRule.rse_expression))
         results = query.all()
         for result in results:
-            monitor.record_gauge(stat='rucio.expected_number_of_files.%s' % result[0], value=result[1])
+            probe_metrics.gauge('expected_number_of_files.{rse_expression}').labels(rse_expression=result[0]).set(result[1])
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)

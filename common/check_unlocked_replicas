@@ -24,6 +24,7 @@ from utils import common
 
 PrometheusPusher = common.PrometheusPusher
 
+
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
@@ -58,6 +59,7 @@ if __name__ == "__main__":
             result = session.execute(expired_sql).fetchone()[0]
             monitor.record_gauge(stat='reaper.expired_replicas', value=result)
             Gauge(prefix + 'reaper_expired_replicas', '', registry=registry).set(result)
+
 
     except:
         sys.exit(UNKNOWN)

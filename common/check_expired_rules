@@ -8,7 +8,7 @@
 # Authors:
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2013
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
-# - Eric Vaandering, <ewv@fnal.gov>, 2020-2022
+# - Eric Vaandering, <ewv@fnal.gov>, 2020-2023
 
 """
 Probe to check the backlog of expired rules.
@@ -17,13 +17,9 @@ Probe to check the backlog of expired rules.
 import sys
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge
-from rucio.core import monitor
 from rucio.db.sqla.session import BASE, get_session
 
-from utils import common
-
-PrometheusPusher = common.PrometheusPusher
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -35,20 +31,16 @@ else:
 
 if __name__ == "__main__":
     try:
-        registry = CollectorRegistry()
         session = get_session()
-        with PrometheusPusher(registry, job_name='check_expired_rules') as prometheus_config:
-            prefix: str = prometheus_config['prefix']
+        with PrometheusPusher() as manager:
             expired_rules = 'select count(1) from {schema}rules where expires_at < sys_extract_utc(localtimestamp)'.format(schema=schema)
             result = session.execute(expired_rules).fetchone()[0]
-            monitor.record_gauge('judge.expired_rules', value=result)
-            Gauge(prefix + 'judge_expired_rules', '', registry=registry).set(result)
+            manager.gauge(name='judge.expired_rules').set(result)
+
             lifetimed_rules = 'select count(1) from {schema}rules where expires_at > sys_extract_utc(localtimestamp)'.format(schema=schema)
             result = session.execute(lifetimed_rules).fetchone()[0]
             print(result)
-            monitor.record_gauge('judge.lifetimed_rules', value=result)
-            Gauge(prefix + 'judge_lifetimed_rules', '', registry=registry).set(result)
-
+            manager.gauge(name='judge.lifetimed_rules').set(result)
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
