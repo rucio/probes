@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright European Organization for Nuclear Research (CERN) 2013
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -7,22 +7,20 @@
 #
 # Authors:
 # - Martin Barisits, <martin.barisits@cern.ch>, 2014
-# - Eric Vaandering, <ewv@fnal.gov>, 2019-2021
+# - Eric Vaandering, <ewv@fnal.gov>, 2019-2022
 # - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
+# - Maggie Voetberg, <maggiev@fnal.gov>, 2024
 
 """
 Probe to check the backlog of stuck rules.
 """
-from __future__ import print_function
 
 import sys
 import traceback
+from sqlalchemy.sql import text as sql_text
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from rucio.common.config import config_get
 from rucio.db.sqla.session import BASE, get_session
-
-from utils.common import probe_metrics
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -32,33 +30,26 @@ if BASE.metadata.schema:
 else:
     schema = ''
 
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
-
 if __name__ == "__main__":
     try:
-        registry = CollectorRegistry()
         session = get_session()
-        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)'.format(
-            schema=schema)
-        result = session.execute(sql).fetchone()[0]
-        probe_metrics.gauge(name='judge.stuck_rules_without_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_without_missing_source_replica', '', registry=registry).set(result)
 
-        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and error =\'MissingSourceReplica\''.format(
-            schema=schema)
-        result = session.execute(sql).fetchone()[0]
-        probe_metrics.gauge(name='judge.stuck_rules_with_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
+        without_missing = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)'.format(schema=schema)
+        with_missing =  'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and error =\'MissingSourceReplica\''.format(schema=schema)
+        queries = {
+            "without_missing_source_replica": without_missing, 
+            "with_missing_source_replica": with_missing
+        }
 
-        if len(PROM_SERVERS):
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_stuck_rules', registry=registry)
-                except:
-                    continue
+        with PrometheusPusher() as manager:
+            for source_status, query in queries.items(): 
+                result = session.execute(sql_text(query)).fetchone()[0]
+                manager.gauge("stuck_rules.{source_status}", 
+                    documentation="Backlog of stuck rules"
+                    ).labels(source_status=source_status).set(result)
+
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
+        
     sys.exit(OK)
