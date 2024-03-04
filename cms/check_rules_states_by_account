@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Copyright 2012-2020 CERN
+#!/usr/bin/env python3
+# Copyright 2012-2024 CERN
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,97 +15,62 @@
 #
 # Authors:
 # - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2021
+# - Maggie Voetberg, <maggiev@fnal.gov>, 2024
 
 """
 Probe that counts the number of stuck, replicating rules and waiting for approval rules, clasiffied by account.
 """
 
-import json
 import sys
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from rucio.common.config import config_get
 from rucio.common.types import InternalAccount
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
-from rucio.db.sqla.util import get_count
+from sqlalchemy import func
+
 from utils import common
 
-probe_metrics = common.probe_metrics
-
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
-else:
-    PROM_SERVERS = None
-
-prom_labels_config = config_get('monitor', 'prometheus_labels', raise_exception=False, default='{}')
-extra_prom_labels = json.loads(prom_labels_config)
+PrometheusPusher = common.PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+states = {
+    "stuck": RuleState.STUCK, 
+    "replicating": RuleState.REPLICATING, 
+    "waiting_approval": RuleState.WAITING_APPROVAL
+} 
+accounts = [
+    'transfer_ops', 
+    'wmcore_output', 
+    'wma_prod', 
+    'wmcore_transferor', 
+    'crab_tape_recall'
+]
 
 if __name__ == '__main__':
-    registry = CollectorRegistry()
-    labelnames = ['account', 'state']
-    labelnames.extend(extra_prom_labels.keys())
-    rules_count_gauge = Gauge('rucio_judge_rules_count', 'Number of rules in a specific state by account',
-                              labelnames=labelnames, registry=registry)
+
     try:
         session = get_session()
-        accounts = ['transfer_ops', 'wmcore_output', 'wma_prod', 'wmcore_transferor', 'crab_tape_recall']
-        results = []
 
-        for account in accounts:
-            _account = InternalAccount(account)
-            query = (session.query(models.ReplicationRule.scope)
-                     .filter(models.ReplicationRule.state == RuleState.STUCK)
-                     .filter(models.ReplicationRule.account == _account))
+        with PrometheusPusher() as manager: 
+            for account_name in accounts:
+                for state_name, state in states.items(): 
+                    internal_account = InternalAccount(account_name)
+                    query = (session.query(func.count(models.ReplicationRule.scope))
+                            .filter(models.ReplicationRule.state == state)
+                            .filter(models.ReplicationRule.account == internal_account))
 
-            stuck = get_count(query)
-            prom_labels = {'account': account, 'state': RuleState.STUCK}
-            prom_labels.update(extra_prom_labels)
-            rules_count_gauge.labels(**prom_labels).set(stuck)
+                    rule_count = query.scalar() or 0
 
-            query = (session.query(models.ReplicationRule.scope)
-                     .filter(models.ReplicationRule.state == RuleState.REPLICATING)
-                     .filter(models.ReplicationRule.account == _account))
-
-            replicating = get_count(query)
-            prom_labels = {'account': account, 'state': RuleState.REPLICATING}
-            prom_labels.update(extra_prom_labels)
-            rules_count_gauge.labels(**prom_labels).set(replicating)
-
-            query = (session.query(models.ReplicationRule.scope)
-                     .filter(models.ReplicationRule.state == RuleState.WAITING_APPROVAL)
-                     .filter(models.ReplicationRule.account == _account))
-
-            wfa = get_count(query)
-            prom_labels = {'account': account, 'state': RuleState.WAITING_APPROVAL}
-            prom_labels.update(extra_prom_labels)
-            rules_count_gauge.labels(**prom_labels).set(wfa)
-
-            # wfa = waiting for approval
-            wfa = get_count(query)
-
-            print('Number of stuck rules by %s: %d' % (account, stuck))
-            print('Number of replicating rules by %s: %d' % (account, replicating))
-            print('Number of waiting for approval rules by by %s: %d' % (account, wfa))
-
-            probe_metrics.gauge(name='rucio.judge.stuck_rules_from.{account}').labels(account=account).set(stuck)
-            probe_metrics.gauge(name='rucio.judge.replicating_rules_from.{account}'
-                                ).labels(account=account).set(replicating)
-            probe_metrics.gauge(name='rucio.judge.wfa_rules_from.{account}').labels(account=account).set(wfa)
-
-            if PROM_SERVERS:
-                for server in PROM_SERVERS:
-                    try:
-                        push_to_gateway(server.strip(), job='check_rules_count_by_state_by_account', registry=registry)
-                    except:
-                        continue
+                    manager.gauge(
+                        name='rule_count_per_state_and_account.{state}.{account}',
+                        documentation='Rule count per state and account'
+                        ).labels(account=account_name, state=state_name
+                                 ).set(rule_count)
 
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
+
