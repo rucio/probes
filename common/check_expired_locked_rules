@@ -1,56 +1,121 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+#!/usr/bin/env python3
+# Copyright 2012-2024 CERN
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # Authors:
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
+# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
+# - Eric Vaandering, <ewv@fnal.gov>, 2020
+# - Maggie Voetberg <maggiev@fnal.gov>, 2024
+
 
 '''
 Probe to check the locked expired rules or datasets with locked rules
 '''
 
 import sys
-from rucio.db.sqla.session import get_session
+import traceback
+from sqlalchemy import select, and_
+from sqlalchemy.sql import functions
+
+from rucio.db.sqla import models, session
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if __name__ == '__main__':
 
-def main():
-    '''
-    Probe to check the locked expired rules or datasets with locked rules
-    '''
     status = OK
-    session = get_session()
-    try:
-        query = "select rawtohex(id), scope, name, rse_expression from atlas_rucio.rules where locked=1 and expires_at<sys_extract_utc(localtimestamp)"
-        print 'Locked expired rules'
-        for row in session.execute(query):
-            status = CRITICAL
-            print row[0], row[1], row[2]
-    except Exception as error:
-        print error
-        status = UNKNOWN
-        sys.exit(status)
-    try:
-        query = """select rawtohex(c.id), c.scope, c.name, c.rse_expression from atlas_rucio.rules c,
-                   (select a.scope, a.name from atlas_rucio.dids a
-                   where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
-                   and exists (select 1 from atlas_rucio.rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
-                   where c.scope=d.scope and c.name=d.name and locked=1"""
-        print 'Datasets expired with locked rules'
-        for row in session.execute(query):
-            status = CRITICAL
-            print row[0], row[1], row[2], row[3]
-    except Exception as error:
-        print error
-        status = UNKNOWN
-        sys.exit(status)
+    session = session.get_session()
+    with PrometheusPusher() as manager: 
+        try:            
+            statement = select(
+                models.ReplicationRule.id, 
+                models.ReplicationRule.scope, 
+                models.ReplicationRule.name, 
+                models.ReplicationRule.rse_expression
+            ).where(
+                and_(
+                    models.ReplicationRule.locked == '1', 
+                    models.ReplicationRule.expires_at<functions.current_timestamp()
+                )
+            )
+            query = session.execute(statement).scalars()
+            rule_counts = {"null":0}
+
+            print('Locked expired rules')
+            for rule_id, scope, name, rse_expression in query: 
+                print(rule_id, scope, name, rse_expression)
+                status = CRITICAL
+
+                if rse_expression in rule_counts.keys(): 
+                    rule_counts[rse_expression] += 1 
+                else: 
+                    rule_counts[rse_expression] = 1
+
+            for rse_expression, count in rule_counts.items():
+                manager.gauge('locked_expired_rules.{rse_expression}',
+                        documentation='Number of rules that are locked and expired, by RSE.'
+                    ).labels(
+                        rse_expression=rse_expression
+                    ).set(count)
+
+        except Exception as error:
+            print(traceback.format_exc())
+            sys.exit(UNKNOWN)
+
+        try:
+            statement = select(
+                    models.ReplicationRule.id, 
+                    models.DataIdentifier.name,
+                    models.DataIdentifier.scope,
+                    models.ReplicationRule.rse_expression
+                ).join(
+                    models.DataIdentifier, 
+                    (models.ReplicationRule.scope == models.DataIdentifier.scope) & (models.ReplicationRule.name == models.DataIdentifier.name)
+                ).where(
+                    and_(
+                        models.ReplicationRule.locked == True, 
+                        models.DataIdentifier.expired_at != None, 
+                        models.DataIdentifier.expired_at < functions.current_timestamp()
+                    )
+                )
+
+            query = session.execute(statement).scalars()
+            datasets_count = {"null":0}
+
+            print('Datasets expired with locked rules')
+            for rule_id, scope, name, rse_expression in query: 
+                print(rule_id, scope, name, rse_expression)
+                status = CRITICAL
+
+                if rse_expression in datasets_count.keys(): 
+                    datasets_count[rse_expression] += 1 
+                else: 
+                    datasets_count[rse_expression] = 1
+
+
+            for rse_expression, dids in datasets_count.items():
+                manager.gauge('locked_expired_rules.dids.{rse_expression}',
+                        documentation='Number of expired DIDs with locked rules, by RSE'
+                    ).labels(
+                        rse_expression=rse_expression
+                    ).set(dids)
+
+        except:
+            print(traceback.format_exc())
+            sys.exit(UNKNOWN)
+
     sys.exit(status)
-
-
-if __name__ == "__main__":
-    main()
