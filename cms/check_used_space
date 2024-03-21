@@ -57,31 +57,33 @@ if __name__ == '__main__':
                     
                     # Calculate free rucio space of RSE and push it
                     if usage['source'] == 'rucio':
-                        prom_labels['source'] = 'rucio_free_space'
+                        source = 'rucio_free_space'
+                        prom_labels['source'] = source
                         rucio_used = usage['used']
                         rucio_free_space = int(usage['total']) - int(usage['used'])
-                        (manager.gauge(name='rucio_free_space',
+                        (manager.gauge(name='rucio_space',
                                    documentation='Space used at an RSE from various sources', labelnames=label_names)
                          .labels(**prom_labels)
                          .set(rucio_free_space))
-                        print(rse['rse'], country, rse_type, 'rucio_free_space', rucio_free_space)
+                        print(rse['rse'], country, rse_type, source, rucio_free_space)
                         
                     # Calculate total free space of RSE (static-rucio) and push it
                     if usage['source'] == 'static':
                         static_used = usage['used']
                     
                     if rucio_used and static_used:
-                        prom_labels['source'] = 'free_space'
+                        source = 'free_space'
+                        prom_labels['source'] = source
                         free_space = int(static_used) - int(rucio_used)
-                        (manager.gauge(name='free_space',
+                        (manager.gauge(name='rucio_space',
                                    documentation='Space used at an RSE from various sources', labelnames=label_names)
                          .labels(**prom_labels)
                          .set(free_space))
-                        print(rse['rse'], country, rse_type, 'free_space', free_space)
+                        print(rse['rse'], country, rse_type, source, free_space)
 
                     source = usage['source']
                     prom_labels['source'] = source    
-                    (manager.gauge(name='{source}',
+                    (manager.gauge(name='rucio_space',
                                    documentation='Space used at an RSE from various sources', labelnames=label_names)
                      .labels(**prom_labels)
                      .set(usage['used']))
@@ -89,12 +91,13 @@ if __name__ == '__main__':
                       
                 # export and push `MinFreeSpace` value from RSE limits
                 if limits.get('MinFreeSpace'):
-                    prom_labels['source'] = 'min_free_space'              
-                    (manager.gauge(name='min_free_space',
+                    source = 'min_free_space'
+                    prom_labels['source'] = source
+                    (manager.gauge(name='rucio_space',
                                    documentation='Space used at an RSE from various sources', labelnames=label_names)
                          .labels(**prom_labels)
                          .set(limits.get('MinFreeSpace')))
-                    print(rse['rse'], country, rse_type, 'min_free_space', limits.get('MinFreeSpace'))
+                    print(rse['rse'], country, rse_type, source, limits.get('MinFreeSpace'))
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
