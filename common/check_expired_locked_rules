@@ -6,51 +6,109 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2020. 
+# - Eric Vaandering, <ewv@fnal.gov> 2020.
+# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch> 2020.
 
-'''
+"""
 Probe to check the locked expired rules or datasets with locked rules
-'''
+"""
+
+from __future__ import print_function
 
 import sys
-from rucio.db.sqla.session import get_session
+from datetime import datetime
+
+from rucio.core import monitor
+from rucio.db.sqla import models
+from rucio.db.sqla.session import BASE, get_session
+from sqlalchemy import func
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
+
 
 def main():
-    '''
+    """
     Probe to check the locked expired rules or datasets with locked rules
-    '''
+    """
     status = OK
     session = get_session()
     try:
-        query = "select rawtohex(id), scope, name, rse_expression from atlas_rucio.rules where locked=1 and expires_at<sys_extract_utc(localtimestamp)"
-        print 'Locked expired rules'
-        for row in session.execute(query):
+        print('Locked expired rules')
+        query = (session.query(
+            models.ReplicationRule.id,
+            models.ReplicationRule.scope,
+            models.ReplicationRule.name,
+            models.ReplicationRule.rse_expression)
+    .filter(models.ReplicationRule.locked == 1)
+    .filter(models.ReplicationRule.expires_at != None)
+    .filter(models.ReplicationRule.expires_at < datetime.utcnow()))
+        results = query.all()
+        for row in results:
             status = CRITICAL
-            print row[0], row[1], row[2]
+            id = row[0]
+            print(id, row[1], row[2])
+        print('Locked expired rule counts by RSE expression')
+        query = (session.query(
+            models.ReplicationRule.scope,
+            models.ReplicationRule.rse_expression,func.count(
+            models.ReplicationRule.scope))
+    .filter(models.ReplicationRule.locked == 1,
+            models.ReplicationRule.expires_at <= datetime.utcnow())
+    .group_by(models.ReplicationRule.scope,
+              models.ReplicationRule.rse_expression))
+        for row in query.all():
+            print('judge.locked_expired_rules.%s.%s    %s' % (row[0], row[1], row[2]))
+            monitor.record_gauge(stat='judge.locked_expired_rules.%s.%s' % (row[0], row[1]), value=row[2])
     except Exception as error:
-        print error
+        print(error)
         status = UNKNOWN
         sys.exit(status)
+
     try:
-        query = """select rawtohex(c.id), c.scope, c.name, c.rse_expression from atlas_rucio.rules c,
-                   (select a.scope, a.name from atlas_rucio.dids a
-                   where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
-                   and exists (select 1 from atlas_rucio.rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
-                   where c.scope=d.scope and c.name=d.name and locked=1"""
-        print 'Datasets expired with locked rules'
-        for row in session.execute(query):
+        print('Datasets expired with locked rules')
+        query = (session.query(
+            models.ReplicationRule.id,
+            models.ReplicationRule.scope,
+            models.ReplicationRule.name,
+            models.ReplicationRule.rse_expression)
+    .join(models.DataIdentifier,
+         (models.ReplicationRule.scope == models.DataIdentifier.scope) &
+         (models.ReplicationRule.name == models.DataIdentifier.name))
+    .filter(models.ReplicationRule.locked == True)
+    .filter(models.DataIdentifier.expired_at is not None)
+    .filter(models.DataIdentifier.expired_at < datetime.utcnow()))
+        for row in query.all():
             status = CRITICAL
-            print row[0], row[1], row[2], row[3]
+            id = row[0]
+
+        sub_query = (session.query(func.count(
+            models.ReplicationRule.id),
+            models.ReplicationRule.rse_expression)
+    .join(models.DataIdentifier,
+          (models.ReplicationRule.scope == models.DataIdentifier.scope) &
+          (models.ReplicationRule.name == models.DataIdentifier.name))
+    .filter(models.ReplicationRule.locked == True)
+    .filter(models.DataIdentifier.expired_at is not None)
+    .filter(models.DataIdentifier.expired_at < datetime.utcnow())
+    .group_by(models.ReplicationRule.rse_expression))
+        dids = sub_query.all()
+        for did in dids:
+            status = CRITICAL
+            monitor.record_gauge(stat='rucio.datasets_with_locked_rules.%s' % did[1], value=did[0])
     except Exception as error:
-        print error
+        print(error)
         status = UNKNOWN
         sys.exit(status)
+
     sys.exit(status)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
