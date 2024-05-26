@@ -17,16 +17,104 @@
 import os
 import sys
 
+import requests
+import requests.auth
+
 from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import Duplicate
-
-from VOMSAdmin.VOMSCommands import VOMSAdminProxy
 
 UNKNOWN = 3
 CRITICAL = 2
 WARNING = 1
 OK = 0
+
+
+def get_access_token(token_url, client_id, client_secret):
+    data = {
+        'grant_type': 'client_credentials'
+    }
+    basic_auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+    response = requests.post(token_url, data=data, auth=basic_auth)
+
+    if response.status_code != 200:
+        print("Failed to get access token")
+        sys.exit(CRITICAL)
+
+    token_info = response.json()
+    return token_info['access_token']
+
+def get_userid2certs_mapping(scim_url, access_token):
+    ret = {}
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Users".format(scim_url), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get users (offset={})".format(start))
+                sys.exit(CRITICAL)
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for user in d['Resources']:
+                for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
+                    ret.setdefault(user['id'], []).append((certificate['subjectDn'], certificate['issuerDn'], user['emails'][0]['value']))
+            start += page_size
+
+    return ret
+
+def get_group2id_mapping(scim_url, access_token):
+    ret = {}
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Groups".format(scim_url), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get groups (offset={})".format(start))
+                sys.exit(CRITICAL)
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for group in d['Resources']:
+                ret[group['displayName']] = group['id']
+            start += page_size
+
+    return ret
+
+def get_groupid_members(scim_url, groupid, access_token):
+    ret = []
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Groups/{}/members".format(scim_url, groupid), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get group members (groupid={}, offset={})".format(groupid, start))
+                sys.exit(CRITICAL)
+            response.raise_for_status()
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for member in d['Resources']:
+                ret.append(member['value'])
+            start += page_size
+
+    return ret
+
 
 
 if __name__ == '__main__':
@@ -37,39 +125,51 @@ if __name__ == '__main__':
     except Exception:
         print("Failed to get proxy from rucio.cfg")
         sys.exit(CRITICAL)
-    ACCOUNT_MAP = {'Role=pilot': 'pilot', 'Role=production': 'pilot'}
+    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
+    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    try:
+        CLIENT_ID = os.environ['CLIENT_ID']
+        CLIENT_SECRET = os.environ['CLIENT_SECRET']
+    except Exception:
+        print("Failed to get token client from environment")
+        sys.exit(CRITICAL)
+    ACCOUNT_MAP = {'pilot': 'pilot', 'production': 'pilot'}
     STATUS = OK
     NBUSERS = 0
+    TEST = False
     CLIENT = Client()
-    ADMIN = VOMSAdminProxy(vo='atlas', host='lcg-voms2.cern.ch', port=8443,
-                           user_cert=CERT, user_key=KEY)
+
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    userid2certs = get_userid2certs_mapping(SCIM_URL, access_token)
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    group2id = get_group2id_mapping(SCIM_URL, access_token)
+
     for account in ACCOUNT_MAP:
         NBUSERS = 0
-        attempts = 0
-        totattemps = 3
-        for attempts in range(0, totattemps):
-            res = ADMIN.call_method('list-users-with-role', '/atlas', account)
-            if isinstance(res, list) and (attempts < totattemps - 1):
-                for user in res:
-                    NBUSERS += 1
+        if "atlas/{}".format(account) not in group2id:
+            print("missing group 'atlas/{}'".format(account))
+            continue
+        groupid = group2id["atlas/{}".format(account)]
+        access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+        for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2certs:
+                print("missing user details for userid {}".format(userid))
+                continue
+            for dn, ca, email in userid2certs[userid]:
+                NBUSERS += 1
+                try:
+                    print(account, dn, ca, email)
                     try:
-                        dn = user._DN
-                        ca = user._CA
-                        email = user._mail
-                        print(ACCOUNT_MAP[account], dn, ca, email)
-                        try:
+                        if not TEST:
                             CLIENT.add_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509', email=email, default=True)
-                            print('Identity %(dn)s added' % locals())
-                        except Duplicate:
-                            pass
-                        except Exception as error:
-                            print(error)
-                    except:
-                        print('ERROR getting info for %s' % (user._DN))
-                        STATUS = WARNING
-                break
-            else:
-                sys.exit(CRITICAL)
+                        print('Identity {0} added to {1}'.format(dn, ACCOUNT_MAP[account]))
+                    except Duplicate:
+                        pass
+                    except Exception as error:
+                        print(error)
+                except:
+                    print('ERROR getting info for {}'.format(dn))
+                    STATUS = WARNING
         print('%i users extracted from VOMS with %s' % (NBUSERS, account))
 
     ACCOUNT_LIST = [
@@ -83,31 +183,30 @@ if __name__ == '__main__':
     ]
     for account in ACCOUNT_LIST:
         NBUSERS = 0
-        attempts = 0
-        totattemps = 3
-        for attempts in range(0, totattemps):
-            res = ADMIN.call_method('list-members', '/atlas/{0}'.format(account))
-            if isinstance(res, list) and (attempts < totattemps - 1):
-                for user in res:
-                    NBUSERS += 1
+        if "atlas/{}".format(account) not in group2id:
+            print("missing group 'atlas/{}'".format(account))
+            continue
+        groupid = group2id["atlas/{}".format(account)]
+        access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+        for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2certs:
+                print("missing user details for userid {}".format(userid))
+                continue
+            for dn, ca, email in userid2certs[userid]:
+                NBUSERS += 1
+                try:
+                    print(account, dn, ca, email)
                     try:
-                        dn = user._DN
-                        ca = user._CA
-                        email = user._mail
-                        print(account, dn, ca, email)
-                        try:
+                        if not TEST:
                             CLIENT.add_identity(account=account, identity=dn, authtype='X509', email=email, default=True)
-                            print('Identity {0} added to {1}'.format(dn, account))
-                        except Duplicate:
-                            pass
-                        except Exception as error:
-                            print(error)
-                    except:
-                        print('ERROR getting info for %s' % (user._DN))
-                        STATUS = WARNING
-                break
-            else:
-                sys.exit(CRITICAL)
+                        print('Identity {0} added to {1}'.format(dn, account))
+                    except Duplicate:
+                        pass
+                    except Exception as error:
+                        print(error)
+                except:
+                    print('ERROR getting info for {}'.format(dn))
+                    STATUS = WARNING
         print('%i users extracted from VOMS with %s' % (NBUSERS, account))
 
     sys.exit(STATUS)

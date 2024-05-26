@@ -22,12 +22,12 @@ import time
 
 import ldap  # pylint: disable=import-error
 
-from rucio.db.sqla.session import get_session
+import requests
+import requests.auth
+
 from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import Duplicate
-
-from VOMSAdmin.VOMSCommands import VOMSAdminProxy  # pylint: disable=import-error
 
 
 UNKNOWN = 3
@@ -51,7 +51,8 @@ LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail']
 LDAP_PAGE_SIZE = 1000
 
 
-def get_accounts_identities():
+def get_accounts_identities_fast():
+    from rucio.db.sqla.session import get_session
     session = get_session()
     query = '''select b.identity, a.account, a.email from atlas_rucio.accounts a,  atlas_rucio.account_map b where a.account=b.account and identity_type='X509' and account_type='USER' '''
     dns = {}
@@ -62,6 +63,19 @@ def get_accounts_identities():
         return dns
     except Exception as error:
         print(error)
+
+
+def get_accounts_identities_slow():
+    dns = {}
+    client = Client()
+    for account in client.list_accounts():
+        for identity in client.list_identities(account['account']):
+            if identity['type'] == 'X509':
+                dns[identity['identity']] = (account['account'], account['email'])
+    return dns
+
+
+get_accounts_identities = get_accounts_identities_slow
 
 
 def get_ldap_identities():
@@ -84,22 +98,25 @@ def get_ldap_identities():
         msgid = conn.search_ext(LDAP_BASE, LDAP_SCOPE, filterstr=LDAP_FILTER, attrlist=LDAP_ATTRS, serverctrls=paged_serverctrls)
         rtype, rdata, rmsgid, serverctrls = conn.result3(msgid=msgid)
         for dn, attrs in rdata:
-            cn = attrs['cn'][0]
+            cn = attrs['cn'][0].decode('utf-8')
             user = {
                 'mails': [],
                 # 'x509': [],
             }
 
-            for attr in ['mail', 'cernExternalMail']:
-                if attr in attrs:
-                    user[attr] = attrs[attr][0]
-
-            for pmail in attrs.get('proxyAddresses', []):
+            for pmail in [x.decode('utf-8') for x in attrs.get('proxyAddresses', [])]:
                 if pmail.lower().startswith('smtp:'):
                     mail = pmail[len('smtp:'):]
                     if mail.lower() not in [umail.lower() for umail in user['mails']]:
                         user['mails'].append(mail)
-            for mail in attrs.get('mail', []) + attrs.get('cernExternalMail', []):
+
+            for attr in ['mail', 'cernExternalMail']:
+                if attr not in attrs:
+                    continue
+
+                mail = attrs[attr][0].decode('utf-8')
+                user[attr] = mail
+
                 if mail.lower() not in [umail.lower() for umail in user['mails']]:
                     user['mails'].append(mail)
 
@@ -127,6 +144,48 @@ def get_ldap_identities():
     return ret
 
 
+def get_access_token(token_url, client_id, client_secret):
+    data = {
+        'grant_type': 'client_credentials'
+    }
+    basic_auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+    response = requests.post(token_url, data=data, auth=basic_auth)
+
+    if response.status_code != 200:
+        print("Failed to get access token")
+        sys.exit(CRITICAL)
+
+    token_info = response.json()
+    return token_info['access_token']
+
+
+def get_users(scim_url, access_token):
+    ret = []
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Users".format(scim_url), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get users (offset={})".format(start))
+                sys.exit(CRITICAL)
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for user in d['Resources']:
+                certs = []
+                for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
+                    certs.append(certificate['subjectDn'])
+                ret.append((user['userName'], user['emails'][0]['value'], certs))
+            start += page_size
+
+    return ret
+
+
 if __name__ == '__main__':
     try:
         PROXY = config_get('nagios', 'proxy')
@@ -134,15 +193,20 @@ if __name__ == '__main__':
         CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
     except Exception as error:
         print("Failed to get proxy from rucio.cfg")
+#        sys.exit(CRITICAL)
+    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
+    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    try:
+        CLIENT_ID = os.environ['CLIENT_ID']
+        CLIENT_SECRET = os.environ['CLIENT_SECRET']
+    except Exception:
+        print("Failed to get token client from environment")
         sys.exit(CRITICAL)
+    TEST = False
     starttime = time.time()
     status = OK
     nbusers = 0
-    nonicknames = []
     client = Client()
-    admin = VOMSAdminProxy(vo='atlas', host='lcg-voms2.cern.ch', port=8443,
-                           user_cert=CERT, user_key=KEY)
-    res = admin.call_method('list-users')
     accounts_email = {account['account']: account['email'] for account in client.list_accounts()}
     accounts = accounts_email.keys()
     scopes = [_ for _ in client.list_scopes()]
@@ -158,81 +222,51 @@ if __name__ == '__main__':
                     print(error)
         else:
             print('%s might not be in ATLAS anymore' % account)
-    voms_identities = {}
-    if isinstance(res, list):
-        for user in res:
-            valid_nickname = True
-            dn = user._DN
-            scope = None
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    for nickname, email, certs in get_users(SCIM_URL, access_token):
+        scope = None
+        for dn in certs:
             if dn in dns:
-                # Check if scope exists
-                account = dns[dn][0]
-                scope = 'user.' + account
-            else:
-                nbusers += 1
-                attempts = 0
-                totattemps = 3
-                for attempts in range(0, totattemps):
-                    if attempts < totattemps - 1:
-                        try:
-                            dn = user._DN
-                            ca = user._CA
-                            email = user._mail
-                            result = admin.call_method('list-user-attributes', dn, ca)
-                            if result is None:
-                                print("Failed to list-user-attributes for dn: %s" % dn)
-                                continue
-                            nickname = None
-                            try:
-                                nickname = result[0]._value
-                            except TypeError as error:
-                                print('ERROR : Failed to process DN: %s' % dn)
-                            if nickname:
-                                if nickname in accounts:
-                                    if nickname not in voms_identities:
-                                        voms_identities[nickname] = [identity['identity'] for identity in client.list_identities(account=nickname) if identity['type'] == 'X509']
-                                    if dn not in voms_identities[nickname]:
-                                        try:
-                                            client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
-                                            print('Identity %(dn)s added' % locals())
-                                        except Duplicate:
-                                            pass
-                                    scope = 'user.' + account
-                                    break
-                                else:
-                                    if nickname in ldap_accounts:
-                                        if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
-                                            print('Account %s does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, email, nickname))
-                                            break
-                                        account = nickname
-                                        if account not in accounts:
-                                            try:
-                                                client.add_account(account=account, type='USER', email=email)
-                                                client.add_identity(account=account, identity=dn, authtype='X509', email=email, default=True)
-                                                scope = 'user.' + account
-                                                print('Account %(account)s added' % locals())
-                                            except Exception:
-                                                pass
-                            elif user._DN not in nonicknames:
-                                nonicknames.append(user._DN)
-                        except Exception as error:
-                            print(error)
-                    else:
-                        try:
-                            print('ERROR getting info for %s' % (user._DN))
-                        except UnicodeEncodeError:
-                            print('ERROR getting info for %s' % (repr(user._DN)))
-                        status = WARNING
-            if scope and scope not in scopes and valid_nickname:
-                try:
-                    client.add_scope(account, scope)
-                    print('Scope %(scope)s added' % locals())
-                except Duplicate:
-                    pass
-    else:
-        sys.exit(CRITICAL)
+                scope = 'user.' + dns[dn][0]
+                break
+        if scope is None:
+            # unable to find rucio account for VO user
+            if nickname in accounts:
+                # rucio account exists, try to add all X.509 identities
+                for dn in certs:
+                    try:
+                        if not TEST:
+                            client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
+                        nbusers += 1
+                        print('Identity {0} added to account {1}'.format(dn, nickname))
+                    except Duplicate:
+                        pass
+                scope = 'user.' + nickname
+            elif nickname in ldap_accounts and len(certs) > 0:
+                # no rucio account exists for this nickname
+                if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
+                    print('Account %s does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, email, nickname))
+                else:
+                    # found matching user account and email in the CERN LDAP
+                    try:
+                        if not TEST:
+                            client.add_account(account=nickname, type='USER', email=email)
+                        print('Account {0} added'.format(nickname))
+                        for dn in certs:
+                            if not TEST:
+                                client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
+                            nbusers += 1
+                            print('Identity {0} added to account {1}'.format(dn, nickname))
+                        scope = 'user.' + nickname
+                    except Exception:
+                        pass
+        if scope and scope not in scopes:
+            try:
+                if not TEST:
+                    client.add_scope(nickname, scope)
+                print('Scope {0} added to {1}'.format(scope, nickname))
+            except Duplicate:
+                pass
     print('%i users extracted from VOMS' % nbusers)
-    if nonicknames != []:
-        print('Users with no nickname : %s' % str(nonicknames))
 
     sys.exit(status)
