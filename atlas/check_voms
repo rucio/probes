@@ -198,7 +198,7 @@ if __name__ == '__main__':
         CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
     except Exception as error:
         print("Failed to get proxy from rucio.cfg")
-#        sys.exit(CRITICAL)
+        sys.exit(CRITICAL)
     TOKEN_URL = 'https://atlas-auth.cern.ch/token'
     SCIM_URL = 'https://atlas-auth.cern.ch/scim'
     try:
