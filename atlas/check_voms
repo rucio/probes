@@ -47,7 +47,7 @@ LDAP_OPTIONS = [
 LDAP_BASE = 'OU=Users,OU=Organic Units,DC=cern,DC=ch'
 LDAP_SCOPE = ldap.SCOPE_SUBTREE
 LDAP_FILTER = '(&(objectClass=user)(!(memberOf=CN=cern-accounts-service,OU=e-groups,OU=Workgroups,DC=cern,DC=ch)))'
-LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail']
+LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail', 'cernAccountType']
 LDAP_PAGE_SIZE = 1000
 
 
@@ -124,6 +124,8 @@ def get_ldap_identities():
 
                 if mail.lower() not in [umail.lower() for umail in user['mails']]:
                     user['mails'].append(mail)
+
+            user['type'] = attrs.get('cernAccountType', [b'Unknown'])[0].decode('utf-8')
 
             ret[cn] = user
 
@@ -252,7 +254,7 @@ if __name__ == '__main__':
             elif nickname in ldap_accounts and len(certs) > 0:
                 # no rucio account exists for this nickname
                 if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
-                    print('Account %s does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, email, nickname))
+                    print('Account %s (%s) does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, ldap_accounts[nickname]['type'], email, nickname))
                 else:
                     # found matching user account and email in the CERN LDAP
                     try:
