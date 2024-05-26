@@ -69,9 +69,14 @@ def get_accounts_identities_slow():
     dns = {}
     client = Client()
     for account in client.list_accounts():
+        if account['type'] != 'USER':
+            continue
         for identity in client.list_identities(account['account']):
-            if identity['type'] == 'X509':
-                dns[identity['identity']] = (account['account'], account['email'])
+            if identity['type'] != 'X509':
+                continue
+            if identity['identity'] in dns:
+                print("Duplicate identity for users {} and {}: {}".format(dns[identity['identity']][0], account['account'], identity['identity']))
+            dns[identity['identity']] = (account['account'], account['email'])
     return dns
 
 
@@ -208,6 +213,7 @@ if __name__ == '__main__':
     nbusers = 0
     client = Client()
     accounts_email = {account['account']: account['email'] for account in client.list_accounts()}
+    accounts_type = {account['account']: account['type'] for account in client.list_accounts()}
     accounts = accounts_email.keys()
     scopes = [_ for _ in client.list_scopes()]
     dns = get_accounts_identities()
@@ -238,10 +244,11 @@ if __name__ == '__main__':
                         if not TEST:
                             client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
                         nbusers += 1
-                        print('Identity {0} added to account {1}'.format(dn, nickname))
+                        print('Identity {0} added to {2} account {1}'.format(dn, nickname, accounts_type[nickname]))
                     except Duplicate:
                         pass
-                scope = 'user.' + nickname
+                if accounts_type[nickname] == 'USER':
+                    scope = 'user.' + nickname
             elif nickname in ldap_accounts and len(certs) > 0:
                 # no rucio account exists for this nickname
                 if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
@@ -256,7 +263,7 @@ if __name__ == '__main__':
                             if not TEST:
                                 client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
                             nbusers += 1
-                            print('Identity {0} added to account {1}'.format(dn, nickname))
+                            print('Identity {0} added to USER account {1}'.format(dn, nickname))
                         scope = 'user.' + nickname
                     except Exception:
                         pass
