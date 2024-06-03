@@ -54,12 +54,12 @@ LDAP_PAGE_SIZE = 1000
 def get_accounts_identities_fast():
     from rucio.db.sqla.session import get_session
     session = get_session()
-    query = '''select b.identity, a.account, a.email from atlas_rucio.accounts a,  atlas_rucio.account_map b where a.account=b.account and identity_type='X509' and account_type='USER' '''
+    query = '''select b.identity, a.account, a.email, a.account_type from atlas_rucio.accounts a,  atlas_rucio.account_map b where a.account=b.account and identity_type='X509' '''
     dns = {}
     try:
         result = session.execute(query)
-        for dn, account, email in result:
-            dns[dn] = (account, email)
+        for dn, account, email, atype in result:
+            dns.setdefault(atype, {})[dn] = (account, email)
         return dns
     except Exception as error:
         print(error)
@@ -69,14 +69,14 @@ def get_accounts_identities_slow():
     dns = {}
     client = Client()
     for account in client.list_accounts():
-        if account['type'] != 'USER':
-            continue
+        #if account['type'] != 'USER':
+        #    continue
         for identity in client.list_identities(account['account']):
             if identity['type'] != 'X509':
                 continue
             if identity['identity'] in dns:
                 print("Duplicate identity for users {} and {}: {}".format(dns[identity['identity']][0], account['account'], identity['identity']))
-            dns[identity['identity']] = (account['account'], account['email'])
+            dns.setdefault(account['type'], {})[identity['identity']] = (account['account'], account['email'])
     return dns
 
 
@@ -187,7 +187,8 @@ def get_users(scim_url, access_token):
                 certs = []
                 for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
                     certs.append(certificate['subjectDn'])
-                ret.append((user['userName'], user['emails'][0]['value'], certs))
+                groups = [x['display'] for x in user.get('groups', [])]
+                ret.append((user['userName'], user['emails'][0]['value'], certs, groups))
             start += page_size
 
     return ret
@@ -200,7 +201,12 @@ if __name__ == '__main__':
         CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
     except Exception as error:
         print("Failed to get proxy from rucio.cfg")
-        sys.exit(CRITICAL)
+        try:
+            CERT = config_get('client', 'client_cert')
+            KEY = config_get('client', 'client_key')
+        except Exception as error:
+            print("Failed to get also client certificate and key from rucio.cfg")
+            sys.exit(CRITICAL)
     TOKEN_URL = 'https://atlas-auth.cern.ch/token'
     SCIM_URL = 'https://atlas-auth.cern.ch/scim'
     try:
@@ -224,18 +230,25 @@ if __name__ == '__main__':
         if account in ldap_accounts:
             if accounts_email[account] and not accounts_email[account].lower() in [email.lower() for email in ldap_accounts[account]['mails']]:
                 print('Bad email for %s : %s vs %s' % (account, accounts_email[account], ldap_accounts[account]))
-                try:
-                    client.update_account(account=account, key='email', value=ldap_accounts[account]['mail'])
-                except Exception as error:
-                    print(error)
+                if not TEST:
+                    try:
+                        client.update_account(account=account, key='email', value=ldap_accounts[account]['mail'])
+                    except Exception as error:
+                        print(error)
+                else:
+                    print('CMD: rucio-admin account update --account {0} --key email --value {1}'.format(account, ldap_accounts[account]['mail']))
         else:
             print('%s might not be in ATLAS anymore' % account)
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    for nickname, email, certs in get_users(SCIM_URL, access_token):
+    for nickname, email, certs, groups in get_users(SCIM_URL, access_token):
+        if 'atlas' not in groups:
+            print("Skipping user {0} because it is not member of ATLAS groups".format(nickname))
+            continue
         scope = None
+        atype = accounts_type.get(nickname, 'USER')
         for dn in certs:
-            if dn in dns:
-                scope = 'user.' + dns[dn][0]
+            if dn in dns.get(atype, []):
+                scope = 'user.' + dns[atype][dn][0]
                 break
         if scope is None:
             # unable to find rucio account for VO user
@@ -245,11 +258,13 @@ if __name__ == '__main__':
                     try:
                         if not TEST:
                             client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
+                        else:
+                            print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
                         nbusers += 1
-                        print('Identity {0} added to {2} account {1}'.format(dn, nickname, accounts_type[nickname]))
+                        print('Identity {0} added to {2} account {1}'.format(dn, nickname, atype))
                     except Duplicate:
                         pass
-                if accounts_type[nickname] == 'USER':
+                if atype == 'USER':
                     scope = 'user.' + nickname
             elif nickname in ldap_accounts and len(certs) > 0:
                 # no rucio account exists for this nickname
@@ -260,19 +275,25 @@ if __name__ == '__main__':
                     try:
                         if not TEST:
                             client.add_account(account=nickname, type='USER', email=email)
+                        else:
+                            print('CMD: rucio-admin account add --type USER --email {0} {1}'.format(email, nickname))
                         print('Account {0} added'.format(nickname))
                         for dn in certs:
                             if not TEST:
                                 client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
+                            else:
+                                print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
                             nbusers += 1
                             print('Identity {0} added to USER account {1}'.format(dn, nickname))
                         scope = 'user.' + nickname
                     except Exception:
                         pass
-        if scope and scope not in scopes:
+        if scope and scope not in scopes and atype == 'USER':
             try:
                 if not TEST:
                     client.add_scope(nickname, scope)
+                else:
+                    print("CMD: rucio-admin scope add --scope user.{0} --account {0}".format(nickname))
                 print('Scope {0} added to {1}'.format(scope, nickname))
             except Duplicate:
                 pass
