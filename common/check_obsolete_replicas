@@ -12,14 +12,20 @@
 '''
 Probe to check the backlog of obsolete replicas.
 '''
+from __future__ import print_function
 
 import sys
 
-from rucio.db.sqla.session import get_session
+from rucio.db.sqla.session import BASE, get_session
+from sqlalchemy.sql import text
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
+if BASE.metadata.schema:
+    schema = BASE.metadata.schema + '.'
+else:
+    schema = ''
 
 if __name__ == "__main__":
     try:
@@ -35,7 +41,7 @@ if __name__ == "__main__":
                           SELECT
                               id AS rse_id
                           FROM
-                              atlas_rucio.rses
+                              {schema}rses
                           WHERE
                               deleted=0) a
                   LEFT OUTER JOIN
@@ -46,7 +52,7 @@ if __name__ == "__main__":
                               COUNT(1)   AS files,
                               SUM(bytes) AS bytes
                           FROM
-                              atlas_rucio.replicas
+                              {schema}replicas
                           WHERE
                               (
                                   CASE
@@ -60,14 +66,14 @@ if __name__ == "__main__":
                       a.rse_id=b.rse_id)
 
         LOOP
-                MERGE INTO atlas_rucio.RSE_USAGE
+                MERGE INTO {schema}RSE_USAGE
                 USING DUAL
-                ON (atlas_rucio.RSE_USAGE.rse_id = u.rse_id and source = 'obsolete')
+                ON ({schema}RSE_USAGE.rse_id = u.rse_id and source = 'obsolete')
                 WHEN NOT MATCHED THEN INSERT(rse_id, source, used, files, updated_at, created_at)
                 VALUES (u.rse_id, 'obsolete', u.bytes, u.files, u.updated_at, u.updated_at)
                 WHEN MATCHED THEN UPDATE SET used=u.bytes, files=u.files, updated_at=u.updated_at;
 
-                MERGE INTO ATLAS_RUCIO.RSE_USAGE_HISTORY H
+                MERGE INTO {schema}RSE_USAGE_HISTORY H
                 USING DUAL
                 ON (h.rse_id = u.rse_id and h.source = 'obsolete' and h.updated_at = u.updated_at)
                 WHEN NOT MATCHED THEN INSERT(rse_id, source, used, files, updated_at, created_at)
@@ -76,9 +82,9 @@ if __name__ == "__main__":
                 COMMIT;
         END LOOP;
 END;
-'''
-        SESSION.execute(QUERY)
+'''.format(schema=schema)
+        SESSION.execute(text(QUERY))
     except Exception as error:
-        print error
+        print(error)
         sys.exit(UNKNOWN)
     sys.exit(OK)
