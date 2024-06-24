@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright European Organization for Nuclear Research (CERN) 2013
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -9,11 +9,10 @@
 # - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2014
 # - Cedric Serfon, <cedric.serfon@cern.ch>, 2018
 
-'''
+"""
 Probe to update the RSE usage for expired replicas
-'''
+"""
 
-from __future__ import print_function
 import sys
 
 from rucio.db.sqla.session import BASE, get_session
