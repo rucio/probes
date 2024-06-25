@@ -46,7 +46,7 @@ LDAP_OPTIONS = [
 ]
 LDAP_BASE = 'OU=Users,OU=Organic Units,DC=cern,DC=ch'
 LDAP_SCOPE = ldap.SCOPE_SUBTREE
-LDAP_FILTER = '(&(objectClass=user)(!(memberOf=CN=cern-accounts-service,OU=e-groups,OU=Workgroups,DC=cern,DC=ch)))'
+LDAP_FILTER = '(objectClass=user)'
 LDAP_ATTRS = ['cn', 'mail', 'proxyAddresses', 'cernExternalMail', 'cernAccountType']
 LDAP_PAGE_SIZE = 1000
 
@@ -126,6 +126,11 @@ def get_ldap_identities():
                     user['mails'].append(mail)
 
             user['type'] = attrs.get('cernAccountType', [b'Unknown'])[0].decode('utf-8')
+#            user['type'] = {
+#                'Primary': 'USER',
+#                'Secondary': 'USER',
+#                'Service': 'SERVICE',
+#            }.get(utype, 'USER')
 
             ret[cn] = user
 
@@ -188,7 +193,7 @@ def get_users(scim_url, access_token):
                 for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
                     certs.append(certificate['subjectDn'])
                 groups = [x['display'] for x in user.get('groups', [])]
-                ret.append((user['userName'], user['emails'][0]['value'], certs, groups))
+                ret.append((user['userName'], user['active'], user['emails'][0]['value'], certs, groups))
             start += page_size
 
     return ret
@@ -219,75 +224,106 @@ if __name__ == '__main__':
     starttime = time.time()
     status = OK
     nbusers = 0
+    syncusers = 0
     client = Client()
-    accounts_email = {account['account']: account['email'] for account in client.list_accounts()}
-    accounts_type = {account['account']: account['type'] for account in client.list_accounts()}
-    accounts = accounts_email.keys()
+    accounts = {account['account']: account for account in client.list_accounts()}
     scopes = [_ for _ in client.list_scopes()]
     dns = get_accounts_identities()
     ldap_accounts = get_ldap_identities()
-    for account in accounts_email:
-        if account in ldap_accounts:
-            if accounts_email[account] and not accounts_email[account].lower() in [email.lower() for email in ldap_accounts[account]['mails']]:
-                print('Bad email for %s : %s vs %s' % (account, accounts_email[account], ldap_accounts[account]))
-                if not TEST:
-                    try:
-                        client.update_account(account=account, key='email', value=ldap_accounts[account]['mail'])
-                    except Exception as error:
-                        print(error)
-                else:
-                    print('CMD: rucio-admin account update --account {0} --key email --value {1}'.format(account, ldap_accounts[account]['mail']))
-        else:
-            print('%s might not be in ATLAS anymore' % account)
+
+    # synchronize accounts, identities and scopes
+    synced_accounts = []
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    for nickname, email, certs, groups in get_users(SCIM_URL, access_token):
+    for nickname, active, email, certs, groups in get_users(SCIM_URL, access_token):
         if 'atlas' not in groups:
             print("Skipping user {0} because it is not member of ATLAS groups".format(nickname))
             continue
+        if TEST:
+            print("Processing user {0} ({1}, {2}, {3})".format(nickname, email, certs, groups))
+
+        syncusers += 1
+        atype = accounts.get(nickname, {}).get('type', 'USER')
+        if nickname not in accounts:
+            if ldap_accounts.get(nickname, {}).get('type', 'Unknown') in ['Primary', 'Secondary']:
+                atype = 'USER'
+            else:
+                print("Skipping user {0} because ldap type is {1}".format(nickname, ldap_accounts.get(nickname, {}).get('type', 'Unknown')))
+                continue
+        if atype == 'USER':
+            # prefer existing user accounts discovered by associated dn
+            new_nickname = None
+            for dn in certs:
+                if dn not in dns.get('USER', []):
+                    continue
+                found = False
+                for dn_nickname in dns['USER'][dn]:
+                    if nickname == dn_nickname:
+                        found = True
+                if found:
+                    break
+                new_nickname = dns['USER'][dn][0]
+            if new_nickname is not None and new_nickname != nickname:
+                if TEST:
+                    print("Using discovered user {0} instead of {1}, certs {2}".format(new_nickname, nickname, certs))
+                nickname = new_nickname
+
+        synced_accounts.append(nickname)
+
         scope = None
-        atype = accounts_type.get(nickname, 'USER')
-        for dn in certs:
-            if dn in dns.get(atype, []):
-                scope = 'user.' + dns[atype][dn][0]
-                break
-        if scope is None:
-            # unable to find rucio account for VO user
-            if nickname in accounts:
-                # rucio account exists, try to add all X.509 identities
-                for dn in certs:
+        if nickname in accounts:
+            # rucio account exists
+            # a) synchronize email address
+            aemail = accounts[nickname]['email']
+            if aemail is None or aemail.lower() != email.lower():
+                if not TEST:
                     try:
+                        client.update_account(account=nickname, key='email', value=email)
+                    except Exception as error:
+                        print(error)
+                else:
+                    print('CMD: rucio-admin account update --account {0} --key email --value {1}'.format(nickname, email))
+            # b) add all X.509 identities
+            for dn in certs:
+                if dn in dns.get(atype, []):
+                    continue
+                try:
+                    if not TEST:
+                        client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
+                    nbusers += 1
+                    print('Identity {0} added to {2} account {1}'.format(dn, nickname, atype))
+                except Duplicate:
+                    pass
+            if atype == 'USER':
+                scope = 'user.' + nickname
+
+        elif active and nickname in ldap_accounts and len(certs) > 0:
+            # no rucio account exists for this nickname
+            if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
+                print('Account %s (%s) without matching email in LDAP does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, ldap_accounts[nickname]['type'], email, nickname))
+            else:
+                # found matching user account and email in the CERN LDAP
+                try:
+                    if not TEST:
+                        client.add_account(account=nickname, type_='USER', email=email)
+                    else:
+                        print('CMD: rucio-admin account add --type USER --email {0} {1}'.format(email, nickname))
+                    print('Account {0} added'.format(nickname))
+                    for dn in certs:
                         if not TEST:
                             client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
                         else:
                             print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
                         nbusers += 1
-                        print('Identity {0} added to {2} account {1}'.format(dn, nickname, atype))
-                    except Duplicate:
-                        pass
-                if atype == 'USER':
+                        print('Identity {0} added to USER account {1}'.format(dn, nickname))
                     scope = 'user.' + nickname
-            elif nickname in ldap_accounts and len(certs) > 0:
-                # no rucio account exists for this nickname
-                if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
-                    print('Account %s (%s) does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, ldap_accounts[nickname]['type'], email, nickname))
-                else:
-                    # found matching user account and email in the CERN LDAP
-                    try:
-                        if not TEST:
-                            client.add_account(account=nickname, type='USER', email=email)
-                        else:
-                            print('CMD: rucio-admin account add --type USER --email {0} {1}'.format(email, nickname))
-                        print('Account {0} added'.format(nickname))
-                        for dn in certs:
-                            if not TEST:
-                                client.add_identity(account=nickname, identity=dn, authtype='X509', email=email, default=True)
-                            else:
-                                print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
-                            nbusers += 1
-                            print('Identity {0} added to USER account {1}'.format(dn, nickname))
-                        scope = 'user.' + nickname
-                    except Exception:
-                        pass
+                except Exception:
+                    print('Failed to add new account %s (%s)' % (nickname, ldap_accounts[nickname]['type']))
+
+        else:
+            print("No new account: nickname %s, active %s, certs: %s, scope: %s" % (nickname, active, certs, scope))
+
         if scope and scope not in scopes and atype == 'USER':
             try:
                 if not TEST:
@@ -297,6 +333,18 @@ if __name__ == '__main__':
                 print('Scope {0} added to {1}'.format(scope, nickname))
             except Duplicate:
                 pass
-    print('%i users extracted from VOMS' % nbusers)
+
+    # list rucio user accounts that can't be matched with any VO account
+    delusers = 0
+    for account in accounts.values():
+        if account['type'] != 'USER':
+            continue
+        aname = account['account']
+        if aname not in synced_accounts:
+            delusers += 1
+            if TEST:
+                print('User account {0} is no longer member VO, details {1}'.format(aname, account))
+
+    print('%i users extracted from VOMS, %i users updated, %i users not in VO' % (syncusers, nbusers, delusers))
 
     sys.exit(status)
