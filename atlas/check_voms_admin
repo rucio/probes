@@ -25,7 +25,7 @@ import ldap  # pylint: disable=import-error
 import requests
 import requests.auth
 
-from rucio.api.account import list_accounts, add_account_attribute, del_account_attribute, list_account_attributes
+from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import RucioException, Duplicate, AccountNotFound
 
@@ -81,7 +81,8 @@ def get_userid2certs_mapping(scim_url, access_token):
             if d['itemsPerPage'] == 0: break
             for user in d['Resources']:
                 for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
-                    ret.setdefault(user['id'], []).append((certificate['subjectDn'], certificate['issuerDn'], user['emails'][0]['value']))
+                    #ret.setdefault(user['id'], []).append((certificate['subjectDn'], certificate['issuerDn'], user['emails'][0]['value']))
+                    ret.setdefault(user['id'], []).append(certificate['subjectDn'])
             start += page_size
 
     return ret
@@ -130,61 +131,103 @@ def get_groupid_members(scim_url, groupid, access_token):
             d = response.json()
             if d['itemsPerPage'] == 0: break
             for member in d['Resources']:
-                ret.append(member['value'])
+                ret.append((member['value'], member['display']))
             start += page_size
 
     return ret
 
 
-def set_account_attributes(dns):
-
+if __name__ == '__main__':
+    TEST = True if 'TEST' in os.environ and os.environ['TEST'].lower() in ['1', 'y', 'yes', 'true'] else False
+    SKIP_REMOVE = True if 'SKIP_REMOVE' in os.environ and os.environ['SKIP_REMOVE'].lower() in ['1', 'y', 'yes', 'true'] else False
     result = OK
-    if not dns:
-        print('No user')
-        return result
-
-    account_mapping = {}
-    for dn in dns:
-        # Get Rucio account
-        accounts = list_accounts(filter={'identity': dn, 'account_type': 'USER'})
-        if not accounts:
-            print("Warning: no user accounts for %s" % dn)
-            continue
-        account_type, role = dns[dn].split(':')
-        for acc in accounts:
-            account = acc['account']
-            if not (account, account_type) in account_mapping:
-                account_mapping[(account, account_type)] = role
-            elif account_mapping[(account, account_type)] != role and role == 'admin':
-                print('Will promote account %s to admin role' % (account))
-                account_mapping[(account, account_type)] = role
-            else:
-                pass
-                # print 'Do nothing for %s:%s DN : %s' % (account, account_type, dn)
-    for account, account_type in account_mapping:
-        role = account_mapping[(account, account_type)]
-        print('Set %s role for %s for %s' % (role, account_type, account))
+    try:
+        PROXY = config_get('nagios', 'proxy')
+        os.environ["X509_USER_PROXY"] = PROXY
+        CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
+    except Exception as error:
+        print("Failed to get proxy from rucio.cfg")
         try:
-            attrs = dict([(dummy['key'], dummy['value']) for dummy in list_account_attributes(account)])
-            if account_type in attrs and attrs[account_type] == role:
-                print('Account %s already has the role %s for %s' % (account, role, account_type))
+            CERT = config_get('client', 'client_cert')
+            KEY = config_get('client', 'client_key')
+        except Exception as error:
+            print("Failed to get also client certificate and key from rucio.cfg")
+            sys.exit(CRITICAL)
+    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
+    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    try:
+        CLIENT_ID = os.environ['CLIENT_ID']
+        CLIENT_SECRET = os.environ['CLIENT_SECRET']
+    except Exception:
+        print("Failed to get token client from environment")
+        sys.exit(CRITICAL)
+
+    client = Client()
+
+    # get rucio accounts, identities and attributes
+    account2attrs = {}
+    dn2useraccount = {}
+    for account in client.list_accounts():
+        attrs = [x for x in client.list_account_attributes(account['account'])]
+        if len(attrs) > 0:
+            if len(attrs) > 1:
+                print("unexpected attribute list for account {}: {}".format(account['account'], attrs))
+            account2attrs[account['account']] = dict([(x['key'], x['value']) for x in attrs[0]])
+        if account['type'] != 'USER': continue
+        for identity in client.list_identities(account['account']):
+            if identity['type'] != 'X509': continue
+            dn2useraccount[identity['identity']] = account['account']
+
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    userid2certs = get_userid2certs_mapping(SCIM_URL, access_token)
+
+    userid2accounts = {}
+    for userid, certs in userid2certs.items():
+        accounts = set()
+        for cert in certs:
+            if cert in dn2useraccount:
+                accounts.add(dn2useraccount[cert])
+        if len(accounts) == 0:
+            print("no rucio account for {} (certificates: '{}')".format(userid, "', '".join(certs)))
+        if len(accounts) > 1:
+            print("multiple rucio accounts for {}: {}".format(userid, ", ".join(sorted(accounts))))
+        userid2accounts[userid] = sorted(accounts)
+
+    # find IAM country and group administrators (production role) and users
+    account2attributes = {}
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    for group, groupid in get_groups(SCIM_URL, access_token).items():
+        attributes = {}
+
+        match_pattern = re.match('atlas/(\w\w|cern|usatlas)(|/(production|Group-Manager))$', group)
+        if match_pattern:
+            country = match_pattern.group(1)
+            if country == 'usatlas':
+                country = 'us'
+            role = match_pattern.group(2).lstrip('/')
+            if role in ['production', 'Group-Manager']:
+                attributes["country-{}".format(country)] = 'admin'
+            else:
+                attributes["country-{}".format(country)] = 'user'
+
+        match_pattern = re.match('atlas/(.*-.*)/(production|Group-Manager)$', group)
+        if match_pattern:
+            phys_group = match_pattern.group(1)
+            attributes["group-{}".format(phys_group)] = 'admin'
+
+        access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+        for userid, display in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2accounts:
+                if userid not in userid2certs:
+                    print("missing rucio account for {} (userid: {})".format(display, userid))
+                else:
+                    print("missing rucio account for {} (userid: {}, certificates: '{}')".format(display, userid, "', '".join(userid2certs[userid])))
                 continue
-            elif account_type in attrs:
-                print('Removing attribute %s from account %s' % (account_type, account))
-                del_account_attribute(account_type, account, 'root')
-            print('Adding attribute %s for %s from account %s' % (role, account_type, account))
-            add_account_attribute(account_type, role, account, 'root')
-        except Duplicate:
-            pass
-        except RucioException as error:
-            print("Failed to add account attribute: %s" % str(error))
-            result = WARNING
-    return result
 
+            for account in userid2accounts[userid]:
+                account2attributes.setdefault(account, {}).update(attributes)
 
-def add_cloud_admins(test):
-
-    result = OK
+    # cloud admins from ldap egroups
     for cloud in ['ca', 'de', 'es', 'fr', 'it', 'ng', 'nl', 'ru', 't0', 'tw', 'uk', 'us']:
         egroup = "atlas-support-cloud-{}".format(cloud)
         if cloud == 'ru':
@@ -211,90 +254,50 @@ def add_cloud_admins(test):
                     if not member.endswith('OU=Users,OU=Organic Units,DC=cern,DC=ch'):
                         continue
                     account = member.split(',')[0][len('CN='):]
-                    print('Set admin role for cloud-%s for %s' % (cloud, account))
-                    try:
-                        if not test:
-                            add_account_attribute('cloud-%s' % cloud, 'admin', account, 'root')
-                    except Duplicate:
-                        pass
-                    except AccountNotFound:
-                        print('Warning: Account %s not in Rucio' % account)
-                        result = WARNING
-                    except RucioException as error:
-                        print("Failed to add account attribute: %s" % str(error))
-                        result = WARNING
+                    account2attributes.setdefault(account, {}).update({'cloud-{}'.format(cloud): 'admin'})
         except ldap.LDAPError as e:
             print("LDAP error: {}".format(e))
+            result = WARNING
         finally:
             ldap_conn.unbind_s()
 
-    return result
-
-
-if __name__ == '__main__':
-    result = OK
-    try:
-        PROXY = config_get('nagios', 'proxy')
-        os.environ["X509_USER_PROXY"] = PROXY
-        CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
-    except Exception as error:
-        print("Failed to get proxy from rucio.cfg")
-        sys.exit(CRITICAL)
-    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
-    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
-    try:
-        CLIENT_ID = os.environ['CLIENT_ID']
-        CLIENT_SECRET = os.environ['CLIENT_SECRET']
-    except Exception:
-        print("Failed to get token client from environment")
-        sys.exit(CRITICAL)
-    TEST = False
-
-    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    userid2certs = get_userid2certs_mapping(SCIM_URL, access_token)
-
-    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    for group, groupid in get_groups(SCIM_URL, access_token).items():
-        match_pattern = re.match('atlas/(\w\w|cern|usatlas)(|/(production|Group-Manager))$', group)
-        if match_pattern:
-            vomsgroup = match_pattern.group(0)
-            country = match_pattern.group(1)
-            if country == 'usatlas':
-                country = 'us'
-            role = match_pattern.group(2).lstrip('/')
-            attribute = "country-{}:user".format(country) if role == '' else "country-{}:admin".format(country)
-
-            dns = {}
-            print("Working on {}".format(attribute))
-            access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-            for userid in get_groupid_members(SCIM_URL, groupid, access_token):
-                if userid not in userid2certs:
-                    print("missing user details for userid {}".format(userid))
-                    continue
-                for dn, ca, email in userid2certs[userid]:
-                    dns[dn] = attribute
-
-            if not TEST:
-                set_account_attributes(dns)
-
-        match_pattern = re.match('atlas/(.*-.*)/(production|Group-Manager)$', group)
-        if match_pattern:
-            vomsgroup = match_pattern.group(0)
-            phys_group = match_pattern.group(1)
-            attribute = "group-{}:admin".format(phys_group)
-            dns = {}
-            print("Working on {}".format(attribute))
-            access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-            for userid in get_groupid_members(SCIM_URL, groupid, access_token):
-                if userid not in userid2certs:
-                    print("missing user details for userid {}".format(userid))
-                    continue
-                for dn, ca, email in userid2certs[userid]:
-                    dns[dn] = attribute
-            if not TEST:
-                set_account_attributes(dns)
-
-    # Add cloud admins from ldap egroups
-    add_cloud_admins(TEST)
+    # update rucio account attributes
+    for account, attributes in sorted(account2attributes.items()):
+        rucio_attributes = account2attrs.get(account, {})
+        #print("rucio account {} attributes {} -> {}".format(account, rucio_attributes, attributes))
+        try:
+            for key, value in attributes.items():
+                if key.startswith('country-') or key.startswith('group-') or key.startswith('cloud-'):
+                    if key not in rucio_attributes:
+                        if not TEST:
+                            client.add_account_attribute(account=account, key=key, value=value)
+                        else:
+                            print("CMD: rucio-admin account add-attribute --key '{}' --value '{}' {}".format(key, value, account))
+                    elif value != rucio_attributes[key]:
+                        if not TEST:
+                            client.delete_account_attribute(account=account, key=key)
+                            client.add_account_attribute(account=account, key=key, value=value)
+                        else:
+                            print("CMD: rucio-admin account delete-attribute --key '{}' {}".format(key, account))
+                            print("CMD: rucio-admin account add-attribute --key '{}' --value '{}' {}".format(key, value, account))
+            if not SKIP_REMOVE:
+                for key, value in rucio_attributes.items():
+                    if key.startswith('country-') or key.startswith('group-') or key.startswith('cloud-'):
+                        if key not in attributes:
+                            if not TEST:
+                                client.delete_account_attribute(account=account, key=key)
+                            else:
+                                print("CMD: rucio-admin account delete-attribute --key '{}' {}".format(key, account))
+        except Duplicate:
+            pass
+        except AccountNotFound:
+            print('Warning: Account %s not in Rucio' % account)
+            result = WARNING
+        except RucioException as error:
+            print("Failed to add account attribute: %s" % str(error))
+            result = WARNING
+        except Exception as error:
+            print("failed to update account {} ({} -> {}): {}".format(account, rucio_attributes, attributes, str(error)))
+            result = WARNING
 
     sys.exit(result)
