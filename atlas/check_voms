@@ -200,6 +200,8 @@ def get_users(scim_url, access_token):
 
 
 if __name__ == '__main__':
+    TEST = True if 'TEST' in os.environ and os.environ['TEST'].lower() in ['1', 'y', 'yes', 'true'] else False
+    SKIP_REMOVE = True if 'SKIP_REMOVE' in os.environ and os.environ['SKIP_REMOVE'].lower() in ['1', 'y', 'yes', 'true'] else False
     try:
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
@@ -220,7 +222,6 @@ if __name__ == '__main__':
     except Exception:
         print("Failed to get token client from environment")
         sys.exit(CRITICAL)
-    TEST = False
     starttime = time.time()
     status = OK
     nbusers = 0

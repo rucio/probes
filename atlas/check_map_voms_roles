@@ -128,13 +128,20 @@ def get_account_identities(account):
 
 
 if __name__ == '__main__':
+    TEST = True if 'TEST' in os.environ and os.environ['TEST'].lower() in ['1', 'y', 'yes', 'true'] else False
+    SKIP_REMOVE = True if 'SKIP_REMOVE' in os.environ and os.environ['SKIP_REMOVE'].lower() in ['1', 'y', 'yes', 'true'] else False
     try:
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
         CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
     except Exception:
         print("Failed to get proxy from rucio.cfg")
-        sys.exit(CRITICAL)
+        try:
+            CERT = config_get('client', 'client_cert')
+            KEY = config_get('client', 'client_key')
+        except Exception as error:
+            print("Failed to get also client certificate and key from rucio.cfg")
+            sys.exit(CRITICAL)
     TOKEN_URL = 'https://atlas-auth.cern.ch/token'
     SCIM_URL = 'https://atlas-auth.cern.ch/scim'
     try:
@@ -146,7 +153,6 @@ if __name__ == '__main__':
     ACCOUNT_MAP = {'pilot': 'pilot', 'production': 'pilot'}
     STATUS = OK
     NBUSERS = 0
-    TEST = False
     CLIENT = Client()
 
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
@@ -184,21 +190,22 @@ if __name__ == '__main__':
                 except Exception as error:
                     print('ERROR {0} not added to {1}: {2}'.format(dn, ACCOUNT_MAP[account], error))
                     STATUS = WARNING
-        for dn in account_identities:
-            if dn in dns:
-                continue
-            NDUSERS += 1
-            try:
-                if not TEST:
-                    CLIENT.del_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509')
-                else:
-                    print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(ACCOUNT_MAP[account], dn))
-                print('Identity {0} removed from {1}'.format(dn, ACCOUNT_MAP[account]))
-            except IdentityError:
-                pass
-            except Exception as error:
-                print('ERROR {0} not added to {1}: {2}'.format(dn, ACCOUNT_MAP[account], error))
-        print('%i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
+        if not SKIP_REMOVE:
+            for dn in account_identities:
+                if dn in dns:
+                    continue
+                NDUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.del_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509')
+                    else:
+                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(ACCOUNT_MAP[account], dn))
+                    print('Identity {0} removed from {1}'.format(dn, ACCOUNT_MAP[account]))
+                except IdentityError:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, ACCOUNT_MAP[account], error))
+        print('Summary %i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
 
     ACCOUNT_LIST = [
         'art', 'calib-muon', 'covid', 'dataprep', 'det-alfa', 'det-ibl',
@@ -239,20 +246,21 @@ if __name__ == '__main__':
                 except Exception as error:
                     print('ERROR {0} not added to {1}: {2}'.format(dn, account, error))
                     STATUS = WARNING
-        for dn in account_identities:
-            if dn in dns:
-                continue
-            NDUSERS += 1
-            try:
-                if not TEST:
-                    CLIENT.del_identity(account=account, identity=dn, authtype='X509')
-                else:
-                    print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(account, dn))
-                print('Identity {0} removed from {1}'.format(dn, account))
-            except IdentityError:
-                pass
-            except Exception as error:
-                print('ERROR {0} not added to {1}: {2}'.format(dn, account, error))
-        print('%i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
+        if not SKIP_REMOVE:
+            for dn in account_identities:
+                if dn in dns:
+                    continue
+                NDUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.del_identity(account=account, identity=dn, authtype='X509')
+                    else:
+                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(account, dn))
+                    print('Identity {0} removed from {1}'.format(dn, account))
+                except IdentityError:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, account, error))
+        print('Summary %i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
 
     sys.exit(STATUS)
