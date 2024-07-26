@@ -21,10 +21,11 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from sqlalchemy import func, null, select
+
 from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
-from rucio.db.sqla.util import get_count
 
 from utils.common import probe_metrics
 
@@ -39,10 +40,18 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        query = (session.query(models.DataIdentifier.scope)
-                        .with_hint(models.DataIdentifier, "INDEX_FFS(DIDS DIDS_IS_NEW_IDX)", 'oracle')
-                        .filter(models.DataIdentifier.is_new.isnot(None)))
-        result = get_count(query)
+
+        query = select(
+            func.count()
+        ).select_from(
+            models.DataIdentifier
+        ).with_hint(
+            models.DataIdentifier, 'INDEX_FFS(DIDS DIDS_IS_NEW_IDX)', 'oracle'
+        ).where(
+            models.DataIdentifier.is_new != null()
+        )
+        result = session.execute(query).scalar_one()
+
         probe_metrics.gauge(name='transmogrifier.new_dids').set(result)
         Gauge('transmogrifier_new_dids', '', registry=registry).set(result)
 
