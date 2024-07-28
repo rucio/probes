@@ -173,6 +173,8 @@ if __name__ == '__main__':
             if len(attrs) > 1:
                 print("unexpected attribute list for account {}: {}".format(account['account'], attrs))
             account2attrs[account['account']] = dict([(x['key'], x['value']) for x in attrs[0]])
+        else:
+            account2attrs[account['account']] = {}
         if account['type'] != 'USER': continue
         for identity in client.list_identities(account['account']):
             if identity['type'] != 'X509': continue
@@ -263,6 +265,7 @@ if __name__ == '__main__':
 
     # update rucio account attributes
     for account, attributes in sorted(account2attributes.items()):
+        if account not in account2attrs: continue
         rucio_attributes = account2attrs.get(account, {})
         #print("rucio account {} attributes {} -> {}".format(account, rucio_attributes, attributes))
         try:
