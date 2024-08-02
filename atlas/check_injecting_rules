@@ -35,7 +35,7 @@ OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 PROM_SERVERS = config_get_list('monitor', 'prometheus_servers', raise_exception=False, default=[])
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     try:
         registry = CollectorRegistry()
         session = get_session()
