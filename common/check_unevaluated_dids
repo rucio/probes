@@ -39,7 +39,7 @@ count_sql = select(
 
 PROM_SERVERS = config_get_list('monitor', 'prometheus_servers', raise_exception=False, default=[])
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     try:
         session = get_session()
         result = session.execute(count_sql).scalar_one()
