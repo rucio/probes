@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
         for server in PROM_SERVERS:
             try:
-                push_to_gateway(server.strip(), job='check_new_dids', registry=registry)
+                push_to_gateway(server, job='check_new_dids', registry=registry)
             except Exception:
                 continue
 
