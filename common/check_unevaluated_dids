@@ -51,10 +51,10 @@ if __name__ == "__main__":
         for server in PROM_SERVERS:
             try:
                 push_to_gateway(server.strip(), job='check_unevaluated_dids', registry=registry)
-            except:
+            except Exception:
                 continue
 
         print(result)
-    except:
+    except Exception:
         sys.exit(UNKNOWN)
     sys.exit(OK)
