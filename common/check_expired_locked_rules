@@ -24,10 +24,12 @@
 Probe to check the locked expired rules or datasets with locked rules
 '''
 
+from collections import defaultdict
+import datetime
 import sys
 import traceback
 from sqlalchemy import select, and_
-from sqlalchemy.sql import functions
+from sqlalchemy.sql import true, null
 
 from rucio.db.sqla import models, session
 from utils.common import PrometheusPusher
@@ -39,31 +41,36 @@ if __name__ == '__main__':
 
     status = OK
     session = session.get_session()
-    with PrometheusPusher() as manager: 
-        try:            
-            statement = select(
-                models.ReplicationRule.id, 
-                models.ReplicationRule.scope, 
-                models.ReplicationRule.name, 
-                models.ReplicationRule.rse_expression
-            ).where(
+
+    # Select statement used for both metrics
+    base_statement = select(
+        models.ReplicationRule,
+        models.DataIdentifier.name,
+        models.DataIdentifier.scope,
+        models.ReplicationRule.rse_expression,
+    )
+
+    # Use prometheus pusher to send results to a remote service
+    with PrometheusPusher() as manager:
+        try:
+            statement = base_statement.where(
                 and_(
-                    models.ReplicationRule.locked == '1', 
-                    models.ReplicationRule.expires_at<functions.current_timestamp()
+                    models.ReplicationRule.locked == true(),
+                    models.ReplicationRule.expires_at < datetime.utcnow()  # see https://github.com/rucio/rucio/issues/6476
                 )
             )
-            query = session.execute(statement).scalars()
-            rule_counts = {"null":0}
+            rule_counts = defaultdict(int)
 
-            print('Locked expired rules')
-            for rule_id, scope, name, rse_expression in query: 
-                print(rule_id, scope, name, rse_expression)
+            # Print rules for nagios monitoring
+            print("Locked expired rules")
+            for row in session.execute(statement):
+                print(row.rule_id, row.scope, row.name, row.rse_expression)
                 status = CRITICAL
+                # Keep track of the counts
+                rule_counts[row.rse_expression] += 1
 
-                if rse_expression in rule_counts.keys(): 
-                    rule_counts[rse_expression] += 1 
-                else: 
-                    rule_counts[rse_expression] = 1
+            # Add a summary entry so when there are no result from the query there is metric continuity
+            rule_counts["All"] = sum(rule_counts.values())
 
             for rse_expression, count in rule_counts.items():
                 manager.gauge('locked_expired_rules.{rse_expression}',
@@ -77,35 +84,26 @@ if __name__ == '__main__':
             sys.exit(UNKNOWN)
 
         try:
-            statement = select(
-                    models.ReplicationRule.id, 
-                    models.DataIdentifier.name,
-                    models.DataIdentifier.scope,
-                    models.ReplicationRule.rse_expression
-                ).join(
-                    models.DataIdentifier, 
-                    (models.ReplicationRule.scope == models.DataIdentifier.scope) & (models.ReplicationRule.name == models.DataIdentifier.name)
-                ).where(
-                    and_(
-                        models.ReplicationRule.locked == True, 
-                        models.DataIdentifier.expired_at != None, 
-                        models.DataIdentifier.expired_at < functions.current_timestamp()
-                    )
+            statement = base_statement.join(
+                models.DataIdentifier,
+                and_(
+                    models.ReplicationRule.scope == models.DataIdentifier.scope,
+                    models.ReplicationRule.name == models.DataIdentifier.name,
+                ),
+            ).where(
+                and_(
+                    models.ReplicationRule.locked == true(),
+                    models.DataIdentifier.expired_at != null(),
+                    models.DataIdentifier.expired_at < datetime.utcnow()  # see https://github.com/rucio/rucio/issues/6476
                 )
+            )
+            datasets_count = defaultdict(int)
 
-            query = session.execute(statement).scalars()
-            datasets_count = {"null":0}
-
-            print('Datasets expired with locked rules')
-            for rule_id, scope, name, rse_expression in query: 
-                print(rule_id, scope, name, rse_expression)
+            print("Datasets expired with locked rules")
+            for row in session.execute(statement):
+                print(row.rule_id, row.scope, row.name, row.rse_expression)
                 status = CRITICAL
-
-                if rse_expression in datasets_count.keys(): 
-                    datasets_count[rse_expression] += 1 
-                else: 
-                    datasets_count[rse_expression] = 1
-
+                datasets_count[row.rse_expression] += 1
 
             for rse_expression, dids in datasets_count.items():
                 manager.gauge('locked_expired_rules.dids.{rse_expression}',
