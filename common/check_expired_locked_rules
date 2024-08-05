@@ -72,12 +72,13 @@ if __name__ == '__main__':
             # Add a summary entry so when there are no result from the query there is metric continuity
             rule_counts["All"] = sum(rule_counts.values())
 
+            # Send to Prometheus pusher
             for rse_expression, count in rule_counts.items():
-                manager.gauge('locked_expired_rules.{rse_expression}',
-                        documentation='Number of rules that are locked and expired, by RSE.'
-                    ).labels(
-                        rse_expression=rse_expression
-                    ).set(count)
+                (manager.gauge(
+                        "locked_expired_rules.{rse_expression}",
+                        documentation="Number of rules that are locked and expired, by RSE expression.")
+                    .labels(rse_expression=rse_expression)
+                    .set(count))
 
         except Exception as error:
             print(traceback.format_exc())
@@ -105,12 +106,13 @@ if __name__ == '__main__':
                 status = CRITICAL
                 datasets_count[row.rse_expression] += 1
 
+            rule_counts["All"] = sum(rule_counts.values())
             for rse_expression, dids in datasets_count.items():
-                manager.gauge('locked_expired_rules.dids.{rse_expression}',
-                        documentation='Number of expired DIDs with locked rules, by RSE'
-                    ).labels(
-                        rse_expression=rse_expression
-                    ).set(dids)
+                (manager.gauge(
+                        "locked_expired_rules.dids.{rse_expression}",
+                        documentation="Number of expired DIDs with locked rules, by RSE expression")
+                    .labels(rse_expression=rse_expression)
+                    .set(dids))
 
         except:
             print(traceback.format_exc())
