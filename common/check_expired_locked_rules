@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2012-2024 CERN
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,26 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Authors:
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2015
-# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
-# - Eric Vaandering, <ewv@fnal.gov>, 2020
-# - Maggie Voetberg <maggiev@fnal.gov>, 2024
 
 
-'''
+"""
 Probe to check the locked expired rules or datasets with locked rules
-'''
+"""
 
-from collections import defaultdict
 import datetime
 import sys
 import traceback
-from sqlalchemy import select, and_
-from sqlalchemy.sql import true, null
+from collections import defaultdict
+
+from sqlalchemy import and_, select
+from sqlalchemy.sql import null, true
 
 from rucio.db.sqla import models, session
+
 from utils.common import PrometheusPusher
 
 # Exit statuses
@@ -114,7 +110,7 @@ if __name__ == '__main__':
                     .labels(rse_expression=rse_expression)
                     .set(dids))
 
-        except:
+        except Exception:
             print(traceback.format_exc())
             sys.exit(UNKNOWN)
 
