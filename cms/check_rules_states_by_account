@@ -20,11 +20,12 @@ Probe that counts the number of stuck, replicating rules and waiting for approva
 import sys
 import traceback
 
+from sqlalchemy import func
+
 from rucio.common.types import InternalAccount
 from rucio.db.sqla import models
 from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
-from sqlalchemy import func
 
 from utils import common
 

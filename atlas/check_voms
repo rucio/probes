@@ -22,14 +22,13 @@ import sys
 import time
 
 import ldap  # pylint: disable=import-error
+from VOMSAdmin.VOMSCommands import \
+    VOMSAdminProxy  # pylint: disable=import-error
 
-from rucio.db.sqla.session import get_session
 from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import Duplicate
-
-from VOMSAdmin.VOMSCommands import VOMSAdminProxy  # pylint: disable=import-error
-
+from rucio.db.sqla.session import get_session
 
 UNKNOWN = 3
 CRITICAL = 2

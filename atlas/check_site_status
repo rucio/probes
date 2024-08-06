@@ -19,10 +19,9 @@ import sys
 
 import requests
 
+from rucio.api.rse import get_rse_protocols, list_rses, update_rse
 from rucio.common.config import config_get
-from rucio.api.rse import list_rses, update_rse, get_rse_protocols
 from rucio.transfertool.fts3 import FTS3Transfertool
-
 
 UNKNOWN = 3
 CRITICAL = 2

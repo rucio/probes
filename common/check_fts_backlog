@@ -18,12 +18,14 @@ import sys
 
 import requests
 import urllib3
+
 try:
     from urlparse import urlparse
 except ImportError:
     from urllib.parse import urlparse
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
 from rucio.common.config import config_get, config_get_bool
 from rucio.core.distance import update_distances
 from rucio.db.sqla.session import BASE, get_session

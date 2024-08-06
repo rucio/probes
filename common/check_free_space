@@ -20,7 +20,7 @@ Probe to check the min free space.
 import sys
 import traceback
 
-from rucio.core.rse import list_rses, get_rse_limits, set_rse_usage
+from rucio.core.rse import get_rse_limits, list_rses, set_rse_usage
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import json
-from typing import Tuple, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from rucio.common.config import config_get
 from rucio.core.monitor import MetricManager

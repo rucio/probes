@@ -18,6 +18,7 @@ Probe to check the queues of messages to submit by Hermes to the broker
 '''
 
 from __future__ import print_function
+
 import sys
 
 from rucio.db.sqla.session import get_session

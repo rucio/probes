@@ -18,6 +18,7 @@ Probe to check the locked expired rules or datasets with locked rules
 '''
 
 import sys
+
 from rucio.db.sqla.session import get_session
 
 # Exit statuses

@@ -19,10 +19,11 @@ import sys
 
 import gfal2
 
+from rucio.api.rse import (get_rse, list_rse_attributes, list_rses,
+                           set_rse_usage)
 from rucio.common.config import config_get
 from rucio.common.exception import RSEProtocolNotSupported
 from rucio.rse import rsemanager as rsemgr
-from rucio.api.rse import list_rses, list_rse_attributes, get_rse, set_rse_usage
 
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 

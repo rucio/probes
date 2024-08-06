@@ -20,7 +20,8 @@ Probe to check used space.
 import sys
 import traceback
 
-from rucio.core.rse import list_rses, get_rse_usage, list_rse_attributes, get_rse_limits
+from rucio.core.rse import (get_rse_limits, get_rse_usage, list_rse_attributes,
+                            list_rses)
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 

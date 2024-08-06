@@ -23,6 +23,7 @@ import re
 import sys
 
 import cx_Oracle
+
 from rucio.common.config import config_get
 
 from utils.common import probe_metrics

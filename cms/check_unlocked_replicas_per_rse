@@ -19,11 +19,12 @@ Probe to check the backlog of unlocked replicas per RSE.
 """
 
 import sys
-from datetime import (datetime, timedelta)
+from datetime import datetime, timedelta
+
+from sqlalchemy import func
 
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
-from sqlalchemy import func
 
 from utils import common
 

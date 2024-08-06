@@ -34,8 +34,9 @@
 
 import json
 import sys
-from urlparse import urlparse
+
 import requests
+from urlparse import urlparse
 
 # Try to use server environment (direct database access). If that fails use
 # client.

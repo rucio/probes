@@ -21,15 +21,16 @@
 
 import os
 import re
-import sys
 import shlex
 import subprocess
-
-from rucio.api.account import list_accounts, add_account_attribute, del_account_attribute, list_account_attributes
-from rucio.common.config import config_get
-from rucio.common.exception import RucioException, Duplicate, AccountNotFound
+import sys
 
 from VOMSAdmin.VOMSCommands import VOMSAdminProxy
+
+from rucio.api.account import (add_account_attribute, del_account_attribute,
+                               list_account_attributes, list_accounts)
+from rucio.common.config import config_get
+from rucio.common.exception import AccountNotFound, Duplicate, RucioException
 
 UNKNOWN = 3
 CRITICAL = 2

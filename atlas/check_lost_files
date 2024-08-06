@@ -13,22 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import sys
-import smtplib
-import time
-import requests
 import calendar
-from email.mime.text import MIMEText
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEBase import MIMEBase
-from email import Encoders
 import mimetypes  # to guess mimetype
+import os
+import smtplib
+import sys
+import time
 # from rucio.common.config import config_get
-from datetime import datetime
-from datetime import date
+from datetime import date, datetime
+from email import Encoders
+from email.mime.text import MIMEText
+from email.MIMEBase import MIMEBase
+from email.MIMEMultipart import MIMEMultipart
+
 # pandas to prepare statistics  RSE:scope:count, may be used to re-implement all the script
 import pandas as pd
+import requests
 
 from rucio.db.sqla.session import get_session
 

@@ -20,11 +20,11 @@ Probe to check the number of expected files per rse.
 import sys
 import traceback
 
-from rucio.db.sqla import models
-from rucio.db.sqla.constants import RequestType
-from rucio.db.sqla.constants import RuleState
-from rucio.db.sqla.session import get_session
 from sqlalchemy import func
+
+from rucio.db.sqla import models
+from rucio.db.sqla.constants import RequestType, RuleState
+from rucio.db.sqla.session import get_session
 
 from utils import common
 

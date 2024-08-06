@@ -23,6 +23,7 @@ import traceback
 from datetime import datetime
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
 from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session

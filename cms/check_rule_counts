@@ -24,12 +24,13 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from sqlalchemy import func
+
 from rucio.common.config import config_get
 from rucio.db.sqla import models
-from rucio.db.sqla.constants import (RuleState)
+from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
 from rucio.db.sqla.util import get_count
-from sqlalchemy import func
 
 from utils import common
 

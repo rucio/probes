@@ -16,11 +16,11 @@
 import os
 import sys
 
+from VOMSAdmin.VOMSCommands import VOMSAdminProxy
+
 from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import Duplicate
-
-from VOMSAdmin.VOMSCommands import VOMSAdminProxy
 
 UNKNOWN = 3
 CRITICAL = 2

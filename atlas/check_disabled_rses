@@ -14,14 +14,14 @@
 # limitations under the License.
 
 import json
-import requests
 import sys
 import traceback
+
+import requests
 
 from rucio.client import Client
 from rucio.common.config import config_get
 from rucio.common.exception import RSENotFound
-
 
 UNKNOWN = 3
 CRITICAL = 2

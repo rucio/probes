@@ -19,19 +19,20 @@
 # Set quotas for all users on scratchdisk
 
 from __future__ import print_function
+
 import json
 import sys
 
 import requests
 
-from rucio.api.rse import get_rse, parse_rse_expression, get_rse_usage, list_rse_attributes
 from rucio.api.account import list_accounts
 from rucio.api.account_limit import set_local_account_limit
 from rucio.api.config import get
-from rucio.db.sqla.session import get_session
+from rucio.api.rse import (get_rse, get_rse_usage, list_rse_attributes,
+                           parse_rse_expression)
 from rucio.common.config import config_get
-from rucio.common.exception import RucioException, RSENotFound, AccountNotFound
-
+from rucio.common.exception import AccountNotFound, RSENotFound, RucioException
+from rucio.db.sqla.session import get_session
 
 UNKNOWN = 3
 CRITICAL = 2
