@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2012-2020 CERN
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Authors:
-# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
-# - Fernando Garzon, <oscar.fernando.garzon.miguez@cern.ch>, 2020
-# - Eric Vaandering, <ewv@fnal.gov>, 2021
-# - Panos Paparrigopoulos, <panos.paparrigopoulos@cern.ch>, 2024
 
 """
 Probe to check used space.
@@ -54,7 +48,7 @@ if __name__ == '__main__':
                 prom_labels = {'rse': rse['rse'], 'country': country, 'rse_type': rse_type, 'source': ''}
                 label_names = ['rse', 'country', 'rse_type', 'source']
                 for usage in sources:
-                    
+
                     # Calculate free rucio space of RSE and push it
                     if usage['source'] == 'rucio':
                         source = 'rucio_free_space'
@@ -70,7 +64,7 @@ if __name__ == '__main__':
                     # Calculate total free space of RSE (static-rucio) and push it
                     if usage['source'] == 'static':
                         static_used = usage['used']
-                    
+
                     if rucio_used and static_used:
                         source = 'free_space'
                         prom_labels['source'] = source
@@ -88,7 +82,7 @@ if __name__ == '__main__':
                      .labels(**prom_labels)
                      .set(usage['used']))
                     print(rse['rse'], country, rse_type, source, usage['used'])
-                      
+
                 # export and push `MinFreeSpace` value from RSE limits
                 if limits.get('MinFreeSpace'):
                     source = 'min_free_space'

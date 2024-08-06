@@ -28,8 +28,6 @@ from rucio.db.sqla import models
 from rucio.db.sqla.constants import RuleState
 from rucio.db.sqla.session import get_session
 
-from utils import probe_metrics
-
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 

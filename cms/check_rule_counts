@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2012-2024 CERN
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Authors:
-# - Donata Mielaikaite, <donata.mielaikaite@cern.ch>, 2020
-# - Eric Vaandering, <ewv@fnal.gov>, 2021
-# - Fernando Garzon, ogarzonm@cern.ch, 2022
-# - Hasan Ozturk, haozturk AT cern DOT ch, 2024
 
 
 """
@@ -71,7 +65,7 @@ if __name__ == '__main__':
             for state, num in result:
                 manager.gauge(name='rule_count_per_state.{state}',
                               documentation='Number of rules in a given state').labels(state=str(state.name)).set(num)
-            
+
 
             # Rule count per state and activity
             results = (session.query(models.ReplicationRule.state, models.ReplicationRule.activity, func.count(models.ReplicationRule.state))
@@ -83,8 +77,8 @@ if __name__ == '__main__':
                 manager.gauge(name='rule_count_per_state_and_activity.{state}.{activity}',
                               documentation='Number of rules in a given state and activity').labels(state=result[0].name, activity=result[1]).set(result[2])
 
-            
-            # Lock count per state (STUCK and REPLICATING) and activity           
+
+            # Lock count per state (STUCK and REPLICATING) and activity
             results = (session.query(models.ReplicationRule.activity,
                                     func.sum(models.ReplicationRule.locks_stuck_cnt),
                                     func.sum(models.ReplicationRule.locks_replicating_cnt))
@@ -108,7 +102,7 @@ if __name__ == '__main__':
                             .filter(models.ReplicationRule.state == stateDB)
                             .filter(models.ReplicationRule.created_at <= age))
                     result = query.scalar() or 0
-                
+
                     manager.gauge(name='rule_count_per_state_and_date.{state}.{older_than_days}',
                                   documentation='Rule count per state and date').labels(state=stateName, older_than_days= nDays ).set(result)
 
