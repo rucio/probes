@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2012-2019 CERN for the benefit of the ATLAS collaboration.
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,15 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Authors:
-# - Vincent Garonne <vincent.garonne@cern.ch>, 2013-2014
-# - David Cameron <david.cameron@cern.ch>, 2014-2015,2020
-# - Tomas Kouba <tomas.kouba@cern.ch>, 2014
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2016-2019
-# - Dimitrios Christidis <dimitrios.christidis@cern.ch>, 2019
-# - Mario Lassnig <mario.lassnig@cern.ch>, 2019
-#
+
 # PY3K COMPATIBLE
 
 from __future__ import print_function
@@ -29,15 +21,14 @@ import json
 import sys
 import traceback
 
-
 import requests
 
-from rucio.db.sqla.session import get_session
-from rucio.common.exception import RucioException, RSENotFound
 from rucio.common.config import config_get
-from rucio.core.rse import add_rse_attribute, get_rses_with_attribute, del_rse_attribute, get_rse_usage, get_rse
+from rucio.common.exception import RSENotFound, RucioException
+from rucio.core.rse import (add_rse_attribute, del_rse_attribute, get_rse,
+                            get_rse_usage, get_rses_with_attribute)
 from rucio.core.rse_expression_parser import parse_expression
-
+from rucio.db.sqla.session import get_session
 
 UNKNOWN = 3
 CRITICAL = 2
