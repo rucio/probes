@@ -1,64 +1,75 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Authors:
-# - Martin Barisits, <martin.barisits@cern.ch>, 2014
-# - Eric Vaandering, <ewv@fnal.gov>, 2019-2021
-# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Probe to check the backlog of stuck rules.
 """
-from __future__ import print_function
 
 import sys
 import traceback
+from sqlalchemy.sql import and_, func, null, or_, select
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from rucio.common.config import config_get
-from rucio.db.sqla.session import BASE, get_session
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
 
-from utils.common import probe_metrics
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if BASE.metadata.schema:
-    schema = BASE.metadata.schema + '.'
-else:
-    schema = ''
-
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
-
 if __name__ == "__main__":
     try:
-        registry = CollectorRegistry()
         session = get_session()
-        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and (error !=\'MissingSourceReplica\' or error IS NULL)'.format(
-            schema=schema)
-        result = session.execute(sql).fetchone()[0]
-        probe_metrics.gauge(name='judge.stuck_rules_without_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_without_missing_source_replica', '', registry=registry).set(result)
+        without_missing_replica_statement = select(
+            func.count()
+        ).select_from(
+            models.ReplicationRule
+        ).where(
+            and_(
+                models.ReplicationRule.state == "S",
+                or_(
+                    models.ReplicationRule.error != "MissingSourceReplica",
+                    models.ReplicationRule.error == null()
+                )
+            )
+        )
 
-        sql = 'SELECT COUNT(1) FROM {schema}RULES where state=\'S\' and error =\'MissingSourceReplica\''.format(
-            schema=schema)
-        result = session.execute(sql).fetchone()[0]
-        probe_metrics.gauge(name='judge.stuck_rules_with_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
+        with_missing_replica_statement = select(
+            func.count()
+        ).select_from(
+            models.ReplicationRule
+        ).where(
+            and_(
+                models.ReplicationRule.state == "S",
+                models.ReplicationRule.error == "MissingSourceReplica"
+            )
+        )
+        queries = {
+            "without_missing_source_replica": without_missing_replica_statement,
+            "with_missing_source_replica": with_missing_replica_statement
+        }
 
-        if len(PROM_SERVERS):
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_stuck_rules', registry=registry)
-                except:
-                    continue
-    except:
+        with PrometheusPusher() as manager:
+            for source_status, statement in queries.items():
+                result = session.execute(statement).scalar_one()
+                (manager.gauge(
+                        "stuck_rules.{source_status}",
+                        documentation="Backlog of stuck rules")
+                    .labels(source_status=source_status)
+                    .set(result))
+    except Exception:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
     sys.exit(OK)
