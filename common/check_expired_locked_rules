@@ -18,31 +18,32 @@
 Probe to check the locked expired rules or datasets with locked rules
 """
 
-import datetime
 import sys
 import traceback
 from collections import defaultdict
+from datetime import datetime
 
 from sqlalchemy import and_, select
 from sqlalchemy.sql import null, true
 
-from rucio.db.sqla import models, session
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
 
 from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     status = OK
-    session = session.get_session()
+    session = get_session()
 
     # Select statement used for both metrics
     base_statement = select(
-        models.ReplicationRule,
-        models.DataIdentifier.name,
-        models.DataIdentifier.scope,
+        models.ReplicationRule.id,
+        models.ReplicationRule.name,
+        models.ReplicationRule.scope,
         models.ReplicationRule.rse_expression,
     )
 
@@ -60,7 +61,7 @@ if __name__ == '__main__':
             # Print rules for nagios monitoring
             print("Locked expired rules")
             for row in session.execute(statement):
-                print(row.rule_id, row.scope, row.name, row.rse_expression)
+                print(row.id, row.scope, row.name, row.rse_expression)
                 status = CRITICAL
                 # Keep track of the counts
                 rule_counts[row.rse_expression] += 1
@@ -98,11 +99,11 @@ if __name__ == '__main__':
 
             print("Datasets expired with locked rules")
             for row in session.execute(statement):
-                print(row.rule_id, row.scope, row.name, row.rse_expression)
+                print(row.id, row.scope, row.name, row.rse_expression)
                 status = CRITICAL
                 datasets_count[row.rse_expression] += 1
 
-            rule_counts["All"] = sum(rule_counts.values())
+            datasets_count["All"] = sum(datasets_count.values())
             for rse_expression, dids in datasets_count.items():
                 (manager.gauge(
                         "locked_expired_rules.dids.{rse_expression}",
