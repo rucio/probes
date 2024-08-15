@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
                 print(f"{state}.{activity}.{external_host} {row.count}")
                 (manager.gauge(
-                        "transfer.{state}.{activity}.{external_host}",
+                        "conveyor.queues.requests.{state}.{activity}.{external_host}",
                         documentation="Status of requests by state, activity, external host.")
                     .labels(activity=activity, state=state, external_host=external_host)
                     .set(row.count))
