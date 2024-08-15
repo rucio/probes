@@ -43,8 +43,8 @@ if __name__ == "__main__":
 
         with PrometheusPusher() as manager:
             (manager.gauge(
-                    "messages_to_submit.queues.messages",
-                    documentation="Messages in queue, to submit")
+                    "hermes.queues.messages",
+                    documentation="Messages in queue from Hermes Daemon, to submit")
                 .set(message_count))
 
         if message_count > 100000:
