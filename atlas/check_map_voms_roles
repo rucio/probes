@@ -150,7 +150,7 @@ if __name__ == '__main__':
     except Exception:
         print("Failed to get token client from environment")
         sys.exit(CRITICAL)
-    ACCOUNT_MAP = {'pilot': 'pilot', 'production': 'pilot'}
+    ACCOUNT_MAP = {} #'pilot': 'pilot', 'production': 'pilot'}
     STATUS = OK
     NBUSERS = 0
     CLIENT = Client()
