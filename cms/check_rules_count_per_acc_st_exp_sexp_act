@@ -98,8 +98,8 @@ if __name__ == "__main__":
                     ).labels(
                         account = account,
                         activity = activity, 
-                        state = state, 
-                        rse_expression = rse_expression
+                        state = state.name, 
+                        rse_expression = rse_expression,
                         source_replica_expression = source_replica_expression
                     ).set(value)
                     

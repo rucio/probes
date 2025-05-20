@@ -112,7 +112,7 @@ if __name__ == "__main__":
                         dest_rse = dest_rse,
                         account = account,
                         activity = activity, 
-                        requests_state = requests_state.name
+                        requests_state = requests_state.name,
                         external_host = external_host
                     ).set(value)
                     
