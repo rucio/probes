@@ -77,17 +77,9 @@ if __name__ == "__main__":
         )
         
         with PrometheusPusher() as manager:
-            for (
-                source_rse, dest_rse, account, activity, 
-                requests_state, external_host, requests_count, requests_volume
+            for (source_rse, dest_rse, account, activity, requests_state, 
+                 external_host, requests_count, requests_volume
                 ) in requests_query.all():
-                
-                # print(
-                #     f"Source:{source_rse},\tDestination:{dest_rse},"
-                #     f"\tAccount:{account},\tActivity:{activity},"
-                #     f"\tRequestsState:{requests_state.name},\tExternalHost:{external_host},"
-                #     f"\tRequestsCount:{requests_count},\tRequestsVolume:{requests_volume},"
-                # )
                 
                 metrics = {
                     "requests_count": requests_count,

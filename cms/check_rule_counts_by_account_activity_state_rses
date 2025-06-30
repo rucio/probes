@@ -68,16 +68,9 @@ if __name__ == "__main__":
         )
         
         with PrometheusPusher() as manager:
-            for (
-                account, state, rse_expression, source_replica_expression, activity,
-                check_rules_count_per_acc_st_exp_sexp_act
+            for (account, state, rse_expression, source_replica_expression, activity,
+                 check_rules_count_per_acc_st_exp_sexp_act
                 ) in requests_query.all():
-                
-                # print(
-                #     f"\tAccount:{account},\tState:{state.name},\tActivity:{activity},"
-                #     f"\tRSEExpression:{rse_expression},\tSourceReplicaExpression:{source_replica_expression},"
-                #     f"\tRulesWaitingApprovalCount:{rules_waiting_approval_count},"
-                # )
                 
                 metrics = {
                     "check_rules_count_per_acc_st_exp_sexp_act": check_rules_count_per_acc_st_exp_sexp_act,
