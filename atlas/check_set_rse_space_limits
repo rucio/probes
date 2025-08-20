@@ -53,10 +53,6 @@ except:
 
 UNKNOWN, OK, WARNING, CRITICAL = -1, 0, 1, 2
 
-# This is the limit of files to delete in each RSE in the reaper loop. To be
-# decided what is the ideal value and if it should be per RSE.
-max_files_to_delete = 100
-
 
 def toTB(size):
     return size / 1000.0**4
