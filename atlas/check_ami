@@ -20,6 +20,8 @@
 import sys
 import traceback
 
+from sqlalchemy import text
+
 from rucio.core.scope import add_scope
 from rucio.db.sqla.session import get_session
 
@@ -37,7 +39,7 @@ USING (select datatype from ATLAS_AMI_PRODUCTION_01_R.data_type@AMI_ATLR.CERN.CH
 ON (D.key='datatype' and S.datatype = D.value)
 WHEN NOT MATCHED THEN INSERT (key,value,created_at, updated_at)
 VALUES ('datatype', S.datatype, sys_extract_utc(systimestamp), sys_extract_utc(systimestamp))'''
-        session.execute(query)
+        session.execute(text(query))
         session.commit()
 
         # Import projects
@@ -46,7 +48,7 @@ USING (select distinct(projecttag) as value from ATLAS_AMI_PRODUCTION_01_R.proje
 ON (D.key='project' and S.value = D.value)
 WHEN NOT MATCHED THEN INSERT (key, value,created_at, updated_at)
 VALUES ('project', S.value, sys_extract_utc(systimestamp), sys_extract_utc(systimestamp))'''
-        session.execute(query)
+        session.execute(text(query))
         session.commit()
 
         # Import scopes
@@ -55,7 +57,7 @@ from ATLAS_AMI_PRODUCTION_01_R.projects@AMI_ATLR.CERN.CH
 where writestatus='valid'
 and not exists (select 1 from atlas_rucio.scopes where scope = projecttag)
 and projecttag not in ('user', 'group', 'group10', 'user10', 'user09', 'group', 'data', 'condR2')'''
-        for project, in session.execute(query):
+        for project, in session.execute(text(query)):
             add_scope(scope=project, account='root')
 
         # import naming convention
@@ -63,7 +65,7 @@ and projecttag not in ('user', 'group', 'group10', 'user10', 'user09', 'group', 
 from ATLAS_AMI_PRODUCTION_01_R.projects@AMI_ATLR.CERN.CH A,   ATLAS_AMI_PRODUCTION_01_R.nomenclature@AMI_ATLR.CERN.CH B
 where A.writestatus='valid' and B.identifier = A.NOMENCLATUREFK and B.nomenclaturestatus = 'VALID'
 and nomenclaturetemplate in ('project.runNumber.streamName.prodStep.dataType.Version', 'project.datasetNumber.physicsShort.prodStep.dataType.Version')'''
-        for project, naming_convention in session.execute(query):
+        for project, naming_convention in session.execute(text(query)):
             try:
                 regexp = '^(?P<project>%(project)s)\.(?P<run_number>\d+)\.(?P<stream_name>[a-zA-Z0-9\_\-]+)\.(?P<prod_step>[a-zA-Z0-9\_\-]+)\.(?P<datatype>\w+)(?:\.(?P<version>[a-zA-Z0-9\_\-]{1,70}))?$' % locals()
                 query = '''MERGE INTO atlas_rucio.naming_conventions D
@@ -72,7 +74,7 @@ ON (D.scope = S.scope)
 WHEN MATCHED THEN UPDATE SET regexp='%(regexp)s', updated_at=sys_extract_utc(systimestamp)
 WHEN NOT MATCHED THEN INSERT(scope, regexp, convention_type, updated_at, created_at)
 VALUES('%(project)s', '%(regexp)s', 'DATASET', sys_extract_utc(systimestamp), sys_extract_utc(systimestamp))''' % locals()
-                session.execute(query)
+                session.execute(text(query))
                 session.commit()
             except Exception as error:
                 print(traceback.format_exc(error))

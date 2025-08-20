@@ -21,6 +21,8 @@ import datetime
 import sys
 import time
 
+from sqlalchemy import text
+
 from rucio.db.sqla.session import get_session
 
 from utils import probe_metrics
@@ -53,14 +55,14 @@ if __name__ == "__main__":
         from atlas_rucio.rules where scope='tests' and account='ddmadmin' and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' group by state)
         """
 
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for state, num in result:
             print(f'rules.{state}', num)
             probe_metrics.gauge(f'{scope}.rules.{state}').set(num)
 
         # check stuck rules
         sql = "select sum(locks_stuck_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state='S' "
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.sum_locks_stuck_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.sum_locks_stuck_cnt').set(result)
 
@@ -68,7 +70,7 @@ if __name__ == "__main__":
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
         sql = "select sum(locks_stuck_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' \
                and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state='S' and created_at <= to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF')"
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.created_24hours_ago.sum_locks_stuck_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.created_24hours_ago.sum_locks_stuck_cnt').set(result)
 
@@ -76,13 +78,13 @@ if __name__ == "__main__":
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=168)
         sql = "select sum(locks_stuck_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' \
               and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state='S' and created_at <= to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF')"
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.created_1week_ago.sum_locks_stuck_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.created_1week_ago.sum_locks_stuck_cnt').set(result)
 
         # check replicating rules
         sql = "select sum(locks_replicating_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state in ('S','R') "
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.sum_locks_replicating_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.sum_locks_replicating_cnt').set(result)
 
@@ -90,7 +92,7 @@ if __name__ == "__main__":
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
         sql = "select sum(locks_replicating_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' \
                and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state in ('S','R') and created_at <= to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF')"
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.created_24hours_ago.sum_locks_replicating_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.created_24hours_ago.sum_locks_replicating_cnt').set(result)
 
@@ -98,7 +100,7 @@ if __name__ == "__main__":
         timeLimit = datetime.datetime.utcnow() - datetime.timedelta(hours=168)
         sql = "select sum(locks_replicating_cnt)  from atlas_rucio.rules where scope='tests' and account='ddmadmin' \
               and rse_expression!='CERN-PROD-RUCIOTEST_DATADISK' and state in ('S','R') and created_at <= to_timestamp('" + str(timeLimit) + "','YYYY-MM-dd HH24:MI:SS.FF')"
-        result = session.execute(sql).fetchone()[0] or 0
+        result = session.execute(text(sql)).fetchone()[0] or 0
         print('rules.created_1week_ago.sum_locks_replicating_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.created_1week_ago.sum_locks_replicating_cnt').set(result)
 

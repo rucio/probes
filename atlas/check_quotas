@@ -21,6 +21,7 @@ import json
 import sys
 
 import requests
+from sqlalchemy import text
 
 from rucio.api.account import list_accounts
 from rucio.api.account_limit import set_local_account_limit
@@ -71,7 +72,7 @@ def set_group_quotas():
                (select rse_id, rse, value from atlas_rucio.rses a, atlas_rucio.rse_attr_map b where a.id=b.rse_id and b.key='physgroup' and b.value!='None' and a.deleted!=1) d
                where c.rse_id=d.rse_id and c.account=d.value'''
     try:
-        result = session.execute(query)
+        result = session.execute(text(query))
         for account, rse, bytes_size in result:
             quotas[account, rse] = bytes_size
     except Exception as error:
@@ -139,7 +140,7 @@ def set_user_quotas(ddm_type, fraction, absolute=0, account_type='USER'):
 
         query = '''select account, atlas_rucio.id2rse(rse_id), bytes from atlas_rucio.account_limits where
 rse_id in (select id from atlas_rucio.rses a, atlas_rucio.rse_attr_map b where a.id=b.rse_id and b.key='type' and b.value='%s' and a.deleted!=1) ''' % (ddm_type)
-        result = session.execute(query)
+        result = session.execute(text(query))
         for account, rse, bytes_size in result:
             if account not in accounts:
                 accounts[account] = {}
@@ -202,7 +203,7 @@ def set_localgroupdisk_quotas(fraction, absolute):
                        AND (B.key = 'type' AND B.value = 'LOCALGROUPDISK')
                        AND C.key = 'country'
                    '''
-        result = session.execute(query)
+        result = session.execute(text(query))
         for rse, country in result:
             if country not in dict_sites:
                 dict_sites[country] = []
@@ -219,7 +220,7 @@ def set_localgroupdisk_quotas(fraction, absolute):
     try:
         query = '''select a.account, a.key, a.value, a.updated_at, a.created_at from atlas_rucio.account_attr_map a, atlas_rucio.accounts b
                    where a.account=b.account and key like 'country-%' and b.status='ACTIVE' '''
-        result = session.execute(query)
+        result = session.execute(text(query))
         for account, key, _, _, _ in result:
             if key not in countries:
                 countries[key] = []
@@ -257,7 +258,7 @@ def set_localgroupdisk_quotas(fraction, absolute):
                                    AND (B.key = 'type' AND B.value = 'LOCALGROUPDISK')
                            )
                        ''' % (country, country_short)
-            result = session.execute(query)
+            result = session.execute(text(query))
             for account, rse, bytes_size in result:
                 if account not in accounts:
                     accounts[account] = {}

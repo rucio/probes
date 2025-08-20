@@ -21,6 +21,8 @@ import datetime
 import sys
 import time
 
+from sqlalchemy import text
+
 from rucio.db.sqla.session import get_session
 
 from utils import probe_metrics
@@ -46,7 +48,7 @@ if __name__ == "__main__":
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='D' \
                and account='ddmusr01' and project='step14' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.hourly.created_datasets').set(result)
         print('hourly.created_datasets', result)
 
@@ -54,7 +56,7 @@ if __name__ == "__main__":
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='F' \
               and account='ddmusr01' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
               and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.hourly.created_files').set(result)
         print('hourly.created_files', result)
 
@@ -73,7 +75,7 @@ if __name__ == "__main__":
                 WHERE scope = 'tests' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                 and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS') \
                 and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK') GROUP BY state)"
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'hourly.created_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.hourly.created_{r[0]}').set(r[1])
@@ -83,19 +85,19 @@ if __name__ == "__main__":
                and updated_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                and updated_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS') \
                and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         print('hourly.finished_replicas', result)
         probe_metrics.gauge(f'{scope}.hourly.finished_replicas').set(result)
 
         # Total datasets hourly
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='D' and account='ddmusr01' and project='step14'"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.hourly.total_created_datasets').set(result)
         print('hourly.total_created_datasets', result)
 
         # Total files hourly
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='F' and account='ddmusr01'"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.hourly.total_created_files').set(result)
         print('hourly.total_created_files', result)
 
@@ -112,7 +114,7 @@ if __name__ == "__main__":
         """
         sql += "END state_desc, num_rows FROM (select /*+ index_ffs((replicas REPLICAS_PK) */ state, count(*) num_rows FROM atlas_rucio.replicas \
                 WHERE scope = 'tests' and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK') group by state)"
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'hourly.total_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.hourly.total_{r[0]}').set(r[1])
@@ -129,7 +131,7 @@ if __name__ == "__main__":
             END state_desc, num_rows FROM (select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ state, count(*) num_rows
             FROM atlas_rucio.requests WHERE request_type='T' and scope = 'tests' GROUP BY state)
         """
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'hourly.total_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.hourly.total_{r[0]}').set(r[1])
