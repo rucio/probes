@@ -20,14 +20,12 @@ from urllib.parse import urlparse
 
 import requests
 
-from rucio.db.sqla.session import get_session
 from rucio.common.config import config_get
 from rucio.common.exception import RucioException
-
-from rucio.core.config import set as core_set
 from rucio.core.config import items as core_items
 from rucio.core.config import remove_option as core_del
-
+from rucio.core.config import set as core_set
+from rucio.db.sqla.session import get_session
 
 UNKNOWN = 3
 CRITICAL = 2

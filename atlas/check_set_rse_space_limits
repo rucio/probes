@@ -35,6 +35,7 @@
 import json
 import sys
 from urllib.parse import urlparse
+
 import requests
 
 # Try to use server environment (direct database access). If that fails use
