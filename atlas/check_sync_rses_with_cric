@@ -91,9 +91,9 @@ if __name__ == '__main__':
                         path = protocol['path']
                         o = urlparse(protocol['endpoint'])
                         if (o.scheme, o.netloc, path) not in priority:
-                            priority[(o.scheme, o.netloc, path)] = {'read_lan': 0, 'write_lan': 0, 'delete_lan': 0,
-                                                                    'read_wan': 0, 'write_wan': 0, 'delete_wan': 0,
-                                                                    'third_party_copy_read': 0, 'third_party_copy_write': 0}
+                            priority[(o.scheme, o.netloc, path)] = {'read_lan': None, 'write_lan': None, 'delete_lan': None,
+                                                                    'read_wan': None, 'write_wan': None, 'delete_wan': None,
+                                                                    'third_party_copy_read': None, 'third_party_copy_write': None}
                         if activity == 'third_party_copy':
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_read'] = index
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_write'] = index
@@ -166,13 +166,13 @@ if __name__ == '__main__':
                         if protocol not in protocols:
                             protocols[protocol] = []
                         protocols[protocol].append([activity, cric_prio, cric_prefix])
-            if sum([act['read_lan'] for act in priority.values()]) == 0:
+            if sum([act['read_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['read_lan'] = priority[key]['read_wan']
-            if sum([act['write_lan'] for act in priority.values()]) == 0:
+            if sum([act['write_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['write_lan'] = priority[key]['write_wan']
-            if sum([act['delete_lan'] for act in priority.values()]) == 0:
+            if sum([act['delete_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['delete_lan'] = priority[key]['delete_wan']
 
