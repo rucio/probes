@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright European Organization for Nuclear Research (CERN)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,7 +49,7 @@ if __name__ == '__main__':
         if notify:
             try:
                 client.get_rse(rse['name'])
-                print '%s needs to be deleted' % (rse['name'])
+                print('%s needs to be deleted' % (rse['name']))
                 retvalue = CRITICAL
             except RSENotFound:
                 # Site is already deleted. Skip
@@ -57,12 +57,12 @@ if __name__ == '__main__':
             except:
                 trcbck = traceback.format_exc()
                 errno, errstr = sys.exc_info()[:2]
-                print 'Interrupted processing with %s %s %s.' % (errno, errstr, trcbck)
+                print('Interrupted processing with %s %s %s.' % (errno, errstr, trcbck))
     for rse in client.list_rses():
         if rse['rse'] not in cric_rses:
             rse_attr = client.list_rse_attributes(rse['rse'])
             if not ('is_stagingarea' in rse_attr and rse_attr['is_stagingarea']):
-                print '%s is not defined in CRIC !!!' % (rse['rse'])
+                print('%s is not defined in CRIC !!!' % (rse['rse']))
                 retvalue = CRITICAL
 
     sys.exit(retvalue)

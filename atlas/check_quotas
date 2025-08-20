@@ -18,7 +18,6 @@
 # Set quotas for users on their country's localgroupdisk
 # Set quotas for all users on scratchdisk
 
-from __future__ import print_function
 import json
 import sys
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
   Copyright European Organization for Nuclear Research (CERN) 2013
 
@@ -71,9 +71,9 @@ VALUES('%(project)s', '%(regexp)s', 'DATASET', sys_extract_utc(systimestamp), sy
                 session.execute(query)
                 session.commit()
             except Exception as error:
-                print traceback.format_exc(error)
+                print(traceback.format_exc(error))
 
     except Exception as error:
-        print traceback.format_exc(error)
+        print(traceback.format_exc(error))
         sys.exit(UNKNOWN)
     sys.exit(OK)
