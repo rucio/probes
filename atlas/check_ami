@@ -72,8 +72,6 @@ VALUES('%(project)s', '%(regexp)s', 'DATASET', sys_extract_utc(systimestamp), sy
                 session.commit()
             except Exception as error:
                 print traceback.format_exc(error)
-            except:
-                print traceback.format_exc(error)
 
     except Exception as error:
         print traceback.format_exc(error)
