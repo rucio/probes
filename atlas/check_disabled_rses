@@ -59,7 +59,7 @@ if __name__ == '__main__':
             except RSENotFound:
                 # Site is already deleted. Skip
                 pass
-            except:
+            except Exception:
                 trcbck = traceback.format_exc()
                 errno, errstr = sys.exc_info()[:2]
                 print('Interrupted processing with %s %s %s.' % (errno, errstr, trcbck))

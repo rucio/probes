@@ -104,7 +104,7 @@ if __name__ == "__main__":
         print('rules.created_1week_ago.sum_locks_replicating_cnt', result)
         probe_metrics.gauge(f'{scope}.rules.created_1week_ago.sum_locks_replicating_cnt').set(result)
 
-    except:
+    except Exception:
         sys.exit(UNKNOWN)
     finally:
         session.remove()

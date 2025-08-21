@@ -135,7 +135,7 @@ if __name__ == "__main__":
             print(f'daily.total_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.daily.total{r[0]}').set(r[1])
 
-    except:
+    except Exception:
         sys.exit(UNKNOWN)
     finally:
         session.remove()
