@@ -65,7 +65,7 @@ if __name__ == '__main__':
             # Set infinite quotas for admin accounts
             for account in ADMIN_ACCOUNTS:
                 set_local_account_limit(account, rse['name'], -1, issuer='root')
-        except Duplicate as error:
+        except Duplicate:
             pass
         except Exception:
             RETVALUE = CRITICAL
@@ -309,7 +309,7 @@ if __name__ == '__main__':
                                 add_protocol(rse=rse['name'], issuer='root', data=params)
                             except Exception as error:
                                 print(error)
-                except Duplicate as error:
+                except Duplicate:
                     pass
                 except RSEProtocolPriorityError as error:
                     print(f'RSE {rse["name"]} protocol {o.scheme}: {error}')

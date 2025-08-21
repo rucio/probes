@@ -46,7 +46,7 @@ if __name__ == '__main__':
     try:
         FTSHOSTS = config_get('conveyor', 'ftshosts')
         FTSHOSTS = FTSHOSTS.split(',')
-    except Exception as error:
+    except Exception:
         print("Failed to get ftshosts")
         STATUS = WARNING
 

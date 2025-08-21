@@ -112,10 +112,10 @@ def get_space(rsename, protocol):
                 else:
                     print(f'Failed to get rse({rsename}) space information: {ret!s}')
                     retvalue = WARNING
-            except RSEProtocolNotSupported as error:
+            except RSEProtocolNotSupported:
                 print(f'Protocol {protocol} not found on {rsename}')
                 retvalue = WARNING
-            except Exception as error:
+            except Exception:
                 print('Failed to get rse({rsename}) space information: {error!s}')
                 retvalue = WARNING
 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     try:
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
-    except Exception as error:
+    except Exception:
         print('Failed to get proxy from rucio.cfg')
 
     for rsename in sorted(rse['rse'] for rse in list_rses({'cloud': CLOUD})):
