@@ -38,18 +38,8 @@ from urllib.parse import urlparse
 
 import requests
 
-# Try to use server environment (direct database access). If that fails use
-# client.
-server = False
-try:
-    from rucio.api import config
-    from rucio.api import rse as client
-    server = True
-except:
-    from rucio.client import Client
-    from rucio.client.configclient import ConfigClient
-    client = Client()
-    config = ConfigClient()
+from rucio.api import config
+from rucio.api.rse import get_rse_usage, list_rse_attributes, list_rses, set_rse_limits
 
 UNKNOWN, OK, WARNING, CRITICAL = -1, 0, 1, 2
 
@@ -76,7 +66,7 @@ for endpoint in DATA.values():
             RSE_HOST[endpoint['name']] = host
 
 try:
-    RSES = [rse['rse'] for rse in client.list_rses()]
+    RSES = [rse['rse'] for rse in list_rses()]
 except Exception as error:
     print("Failed to get RSEs from Rucio: %s" % str(error))
     sys.exit(CRITICAL)
@@ -85,14 +75,9 @@ except Exception as error:
 # {token: (relative limit in %, absolute limit in TB)}
 policy = {}
 try:
-    if server:
-        SECTIONS = config.sections('root')
-        for section in [s for s in SECTIONS if s.startswith('limits')]:
-            policy[section[6:].upper()] = (config.get(section, 'rellimit', 'root'), config.get(section, 'abslimit', 'root'))
-    else:
-        SECTIONS = config.get_config()
-        for section in [s for s in SECTIONS if s.startswith('limits')]:
-            policy[section[6:].upper()] = (SECTIONS[section]['rellimit'], SECTIONS[section]['abslimit'])
+    SECTIONS = config.sections('root')
+    for section in [s for s in SECTIONS if s.startswith('limits')]:
+        policy[section[6:].upper()] = (config.get(section, 'rellimit', 'root'), config.get(section, 'abslimit', 'root'))
 
 except Exception as error:
     print("Failed to get configuration information from Rucio: %s" % str(error))
@@ -113,19 +98,15 @@ for rse in RSES:
     if rse not in DATA:
         print("RSE %s not defined in CRIC" % rse)
         continue
-    rse_attr = client.list_rse_attributes(rse)
+    rse_attr = list_rse_attributes(rse)
     if 'spacetoken' in rse_attr:
-        spacetoken = client.list_rse_attributes(rse)['spacetoken']
+        spacetoken = list_rse_attributes(rse)['spacetoken']
     else:
         print("No space token info for %s" % rse)
         continue
 
-    # Client and server API are different for get_rse_usage
     try:
-        if server:
-            spaceinfo = client.get_rse_usage(rse, None)
-        else:
-            spaceinfo = client.get_rse_usage(rse)
+        spaceinfo = get_rse_usage(rse, None)
     except Exception as error:
         print("Could not get space information for %s: %s" % (rse, str(error)))
         continue
@@ -154,10 +135,7 @@ for rse in RSES:
                 and RSE_HOST[endpoint['name']] == RSE_HOST[rse]
                 and spacetoken == endpoint['token']):
             try:
-                if server:
-                    used = client.get_rse_usage(endpoint['name'], None, source='rucio')
-                else:
-                    used = client.get_rse_usage(endpoint['name'], filters={'source': 'rucio'})
+                used = get_rse_usage(endpoint['name'], None, source='rucio')
             except Exception as error:
                 print("Could not get used Rucio space for %s: %s" % (endpoint['name'], str(error)))
                 continue
@@ -182,10 +160,7 @@ for rse in RSES:
         print("RSE %s: calculated minimum free space %sTB" % (rse, toTB(minfree)))
 
     try:
-        if server:
-            client.set_rse_limits(rse, 'MinFreeSpace', minfree, 'root')
-        else:
-            client.set_rse_limits(rse, 'MinFreeSpace', minfree)
+        set_rse_limits(rse, 'MinFreeSpace', minfree, 'root')
     except Exception as error:
         print("Failed to set RSE limits for %s: %s" % (rse, str(error)))
         continue
