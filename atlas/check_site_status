@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Copyright 2012-2020 CERN for the benefit of the ATLAS collaboration.
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Authors:
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2022
-# - Mario Lassnig <mario.lassnig@cern.ch>, 2020
-#
 
 import json
 import os
@@ -24,8 +19,8 @@ import sys
 
 import requests
 
+from rucio.api.rse import get_rse_protocols, list_rses, update_rse
 from rucio.common.config import config_get
-from rucio.api.rse import list_rses, update_rse, get_rse_protocols
 from rucio.transfertool.fts3 import FTS3Transfertool
 
 
@@ -51,7 +46,7 @@ if __name__ == '__main__':
     try:
         FTSHOSTS = config_get('conveyor', 'ftshosts')
         FTSHOSTS = FTSHOSTS.split(',')
-    except Exception as error:
+    except Exception:
         print("Failed to get ftshosts")
         STATUS = WARNING
 

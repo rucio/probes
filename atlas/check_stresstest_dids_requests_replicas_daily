@@ -1,12 +1,17 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Authors:
-# - Wen Guan, <wguan@cern.ch>, 2014
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 '''
 Probe to check dids, requests and replicas by daily.
@@ -15,6 +20,8 @@ Probe to check dids, requests and replicas by daily.
 import datetime
 import sys
 import time
+
+from sqlalchemy import text
 
 from rucio.db.sqla.session import get_session
 
@@ -40,7 +47,7 @@ if __name__ == "__main__":
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='D' \
                and account='ddmusr01' and project='step14' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.daily.created_datasets').set(result)
         print('daily.created_datasets', result)
 
@@ -48,7 +55,7 @@ if __name__ == "__main__":
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='F' \
               and account='ddmusr01' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
               and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.daily.created_files').set(result)
         print('daily.created_files', result)
 
@@ -67,7 +74,7 @@ if __name__ == "__main__":
                 WHERE scope = 'tests' and created_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                 and created_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS') \
                 and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK') GROUP BY state)"
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'daily.created_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.daily.created_{r[0]}').set(r[1])
@@ -77,19 +84,19 @@ if __name__ == "__main__":
                and updated_at>= to_timestamp('" + str(datetime.datetime.fromtimestamp(timeStart)) + "','YYYY-MM-dd HH24:MI:SS') \
                and updated_at <to_timestamp('" + str(datetime.datetime.fromtimestamp(timeEnd)) + "','YYYY-MM-dd HH24:MI:SS') \
                and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK')"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         print('daily.finished_replicas', result)
         probe_metrics.gauge(f'{scope}.daily.finished_replicas').set(result)
 
         # Total datasets daily
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='D' and account='ddmusr01' and project='step14'"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.daily.total_created_datasets').set(result)
         print('daily.total_created_datasets', result)
 
         # Total files daily
         sql = "select  /*+ index_ffs(dids DIDS_PK) */  count(1) from atlas_rucio.dids where scope='tests' and did_type='F' and account='ddmusr01'"
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(text(sql)).fetchone()[0]
         probe_metrics.gauge(f'{scope}.daily.total_created_files').set(result)
         print('daily.total_created_files', result)
 
@@ -106,7 +113,7 @@ if __name__ == "__main__":
         """
         sql += "END state_desc, num_rows FROM (select /*+ index_ffs((replicas REPLICAS_PK) */ state, count(*) num_rows FROM atlas_rucio.replicas \
                 WHERE scope = 'tests' and rse_id != (select id from atlas_rucio.rses where rse = 'CERN-PROD-RUCIOTEST_DATADISK') group by state)"
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'daily.total_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.daily.total_{r[0]}').set(r[1])
@@ -123,12 +130,12 @@ if __name__ == "__main__":
             END state_desc, num_rows FROM (select /*+ index_ffs(REQUESTS REQUESTS_TYP_STA_CRE_IDX) */ state, count(*) num_rows
             FROM atlas_rucio.requests WHERE request_type='T' and scope = 'tests' GROUP BY state)
         """
-        result = session.execute(sql).fetchall()
+        result = session.execute(text(sql)).fetchall()
         for r in result:
             print(f'daily.total_{r[0]}', r[1])
             probe_metrics.gauge(f'{scope}.daily.total{r[0]}').set(r[1])
 
-    except:
+    except Exception:
         sys.exit(UNKNOWN)
     finally:
         session.remove()

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-# Copyright European Organization for Nuclear Research (CERN)
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
+# you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
 #
-# Authors:
-# - Vincent Garonne, <vincent.garonne@cern.ch>, 2013-2014
-# - Mario Lassnig, <mario.lassnig@cern.ch>, 2014-2022
-# - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
-# - David Cameron, <david.cameron@cern.ch>, 2015
-# - Dimitrios Christidis, <dimitrios.christidis@cern.ch>, 2021
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import json
 import os.path
@@ -23,9 +23,14 @@ import requests
 
 from rucio.api.account import list_accounts
 from rucio.api.account_limit import set_local_account_limit
-from rucio.api.rse import get_rse_protocols, add_protocol, add_rse, update_protocols
+from rucio.api.rse import add_protocol, add_rse, get_rse_protocols, update_protocols
 from rucio.common.config import config_get
-from rucio.common.exception import Duplicate, RSEProtocolPriorityError, RSEProtocolNotSupported, RSENotFound
+from rucio.common.exception import (
+    Duplicate,
+    RSENotFound,
+    RSEProtocolNotSupported,
+    RSEProtocolPriorityError,
+)
 from rucio.db.sqla.constants import RSEType
 
 
@@ -60,7 +65,7 @@ if __name__ == '__main__':
             # Set infinite quotas for admin accounts
             for account in ADMIN_ACCOUNTS:
                 set_local_account_limit(account, rse['name'], -1, issuer='root')
-        except Duplicate as error:
+        except Duplicate:
             pass
         except Exception:
             RETVALUE = CRITICAL
@@ -91,9 +96,9 @@ if __name__ == '__main__':
                         path = protocol['path']
                         o = urlparse(protocol['endpoint'])
                         if (o.scheme, o.netloc, path) not in priority:
-                            priority[(o.scheme, o.netloc, path)] = {'read_lan': 0, 'write_lan': 0, 'delete_lan': 0,
-                                                                    'read_wan': 0, 'write_wan': 0, 'delete_wan': 0,
-                                                                    'third_party_copy_read': 0, 'third_party_copy_write': 0}
+                            priority[(o.scheme, o.netloc, path)] = {'read_lan': None, 'write_lan': None, 'delete_lan': None,
+                                                                    'read_wan': None, 'write_wan': None, 'delete_wan': None,
+                                                                    'third_party_copy_read': None, 'third_party_copy_write': None}
                         if activity == 'third_party_copy':
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_read'] = index
                             priority[(o.scheme, o.netloc, path)]['third_party_copy_write'] = index
@@ -166,13 +171,13 @@ if __name__ == '__main__':
                         if protocol not in protocols:
                             protocols[protocol] = []
                         protocols[protocol].append([activity, cric_prio, cric_prefix])
-            if sum([act['read_lan'] for act in priority.values()]) == 0:
+            if sum([act['read_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['read_lan'] = priority[key]['read_wan']
-            if sum([act['write_lan'] for act in priority.values()]) == 0:
+            if sum([act['write_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['write_lan'] = priority[key]['write_wan']
-            if sum([act['delete_lan'] for act in priority.values()]) == 0:
+            if sum([act['delete_lan'] or 0 for act in priority.values()]) == 0:
                 for key in priority:
                     priority[key]['delete_lan'] = priority[key]['delete_wan']
 
@@ -304,7 +309,7 @@ if __name__ == '__main__':
                                 add_protocol(rse=rse['name'], issuer='root', data=params)
                             except Exception as error:
                                 print(error)
-                except Duplicate as error:
+                except Duplicate:
                     pass
                 except RSEProtocolPriorityError as error:
                     print(f'RSE {rse["name"]} protocol {o.scheme}: {error}')
