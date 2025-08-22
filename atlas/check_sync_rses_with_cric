@@ -158,9 +158,9 @@ if __name__ == '__main__':
                         if o.scheme not in ('https', 'http', 'srm', 'srm+https', 'gsiftp', 'root', 'davs', 'dav', 'storm', 'globus'):
                             continue
                         if (o.scheme, o.netloc) not in priority:
-                            priority[(o.scheme, o.netloc)] = {'read_lan': 0, 'write_lan': 0, 'delete_lan': 0,
-                                                              'read_wan': 0, 'write_wan': 0, 'delete_wan': 0,
-                                                              'third_party_copy_read': 0, 'third_party_copy_write': 0}
+                            priority[(o.scheme, o.netloc)] = {'read_lan': None, 'write_lan': None, 'delete_lan': None,
+                                                              'read_wan': None, 'write_wan': None, 'delete_wan': None,
+                                                              'third_party_copy_read': None, 'third_party_copy_write': None}
                         if activity == 'third_party_copy':
                             priority[(o.scheme, o.netloc)]['third_party_copy_read'] = index
                             priority[(o.scheme, o.netloc)]['third_party_copy_write'] = index
