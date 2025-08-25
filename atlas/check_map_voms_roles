@@ -17,11 +17,12 @@
 import os
 import sys
 
+import requests
+import requests.auth
+
 from rucio.client import Client
 from rucio.common.config import config_get
-from rucio.common.exception import Duplicate
-
-from VOMSAdmin.VOMSCommands import VOMSAdminProxy
+from rucio.common.exception import Duplicate, IdentityError
 
 UNKNOWN = 3
 CRITICAL = 2
@@ -29,85 +30,237 @@ WARNING = 1
 OK = 0
 
 
+def get_access_token(token_url, client_id, client_secret):
+    data = {
+        'grant_type': 'client_credentials'
+    }
+    basic_auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+    response = requests.post(token_url, data=data, auth=basic_auth)
+
+    if response.status_code != 200:
+        print("Failed to get access token")
+        sys.exit(CRITICAL)
+
+    token_info = response.json()
+    return token_info['access_token']
+
+def get_userid2certs_mapping(scim_url, access_token):
+    ret = {}
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Users".format(scim_url), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get users (offset={})".format(start))
+                sys.exit(CRITICAL)
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for user in d['Resources']:
+                for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
+                    ret.setdefault(user['id'], []).append((certificate['subjectDn'], certificate['issuerDn'], user['emails'][0]['value']))
+            start += page_size
+
+    return ret
+
+def get_group2id_mapping(scim_url, access_token):
+    ret = {}
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Groups".format(scim_url), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get groups (offset={})".format(start))
+                sys.exit(CRITICAL)
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for group in d['Resources']:
+                ret[group['displayName']] = group['id']
+            start += page_size
+
+    return ret
+
+def get_groupid_members(scim_url, groupid, access_token):
+    ret = []
+
+    with requests.Session() as session:
+        session.headers = {
+            'Authorization': "Bearer {}".format(access_token),
+        }
+
+        start = 1
+        page_size = 100
+        while True:
+            response = session.get("{}/Groups/{}/members".format(scim_url, groupid), params={'startIndex': start, 'count': page_size})
+            if response.status_code != 200:
+                print("Failed to get group members (groupid={}, offset={})".format(groupid, start))
+                sys.exit(CRITICAL)
+            response.raise_for_status()
+            d = response.json()
+            if d['itemsPerPage'] == 0: break
+            for member in d['Resources']:
+                ret.append(member['value'])
+            start += page_size
+
+    return ret
+
+
+def get_account_identities(account):
+    ret = []
+    client = Client()
+    for identity in client.list_identities(account):
+        if identity['type'] != 'X509':
+            continue
+        ret.append(identity['identity'])
+    return ret
+
+
+
 if __name__ == '__main__':
+    TEST = True if 'TEST' in os.environ and os.environ['TEST'].lower() in ['1', 'y', 'yes', 'true'] else False
+    SKIP_REMOVE = True if 'SKIP_REMOVE' in os.environ and os.environ['SKIP_REMOVE'].lower() in ['1', 'y', 'yes', 'true'] else False
     try:
         PROXY = config_get('nagios', 'proxy')
         os.environ["X509_USER_PROXY"] = PROXY
         CERT, KEY = os.environ['X509_USER_PROXY'], os.environ['X509_USER_PROXY']
     except Exception:
         print("Failed to get proxy from rucio.cfg")
+        try:
+            CERT = config_get('client', 'client_cert')
+            KEY = config_get('client', 'client_key')
+        except Exception as error:
+            print("Failed to get also client certificate and key from rucio.cfg")
+            sys.exit(CRITICAL)
+    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
+    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    try:
+        CLIENT_ID = os.environ['CLIENT_ID']
+        CLIENT_SECRET = os.environ['CLIENT_SECRET']
+    except Exception:
+        print("Failed to get token client from environment")
         sys.exit(CRITICAL)
-    ACCOUNT_MAP = {'Role=pilot': 'pilot', 'Role=production': 'pilot'}
+    ACCOUNT_MAP = {} #'pilot': 'pilot', 'production': 'pilot'}
     STATUS = OK
     NBUSERS = 0
     CLIENT = Client()
-    ADMIN = VOMSAdminProxy(vo='atlas', host='lcg-voms2.cern.ch', port=8443,
-                           user_cert=CERT, user_key=KEY)
+
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    userid2certs = get_userid2certs_mapping(SCIM_URL, access_token)
+    access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+    group2id = get_group2id_mapping(SCIM_URL, access_token)
+
     for account in ACCOUNT_MAP:
         NBUSERS = 0
-        attempts = 0
-        totattemps = 3
-        for attempts in range(0, totattemps):
-            res = ADMIN.call_method('list-users-with-role', '/atlas', account)
-            if isinstance(res, list) and (attempts < totattemps - 1):
-                for user in res:
-                    NBUSERS += 1
-                    try:
-                        dn = user._DN
-                        ca = user._CA
-                        email = user._mail
-                        print(ACCOUNT_MAP[account], dn, ca, email)
-                        try:
-                            CLIENT.add_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509', email=email, default=True)
-                            print('Identity %(dn)s added' % locals())
-                        except Duplicate:
-                            pass
-                        except Exception as error:
-                            print(error)
-                    except:
-                        print('ERROR getting info for %s' % (user._DN))
-                        STATUS = WARNING
-                break
-            else:
-                sys.exit(CRITICAL)
-        print('%i users extracted from VOMS with %s' % (NBUSERS, account))
+        NDUSERS = 0
+        if "atlas/{}".format(account) not in group2id:
+            print("missing group 'atlas/{}'".format(account))
+            continue
+        dns = []
+        groupid = group2id["atlas/{}".format(account)]
+        account_identities = get_account_identities(ACCOUNT_MAP[account])
+        access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+        for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2certs:
+                print("missing user details for userid {}".format(userid))
+                continue
+            for dn, ca, email in userid2certs[userid]:
+                dns.append(dn)
+                if dn in account_identities:
+                    continue
+                NBUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.add_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509', email=email, default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(ACCOUNT_MAP[account], dn, email))
+                    print('Identity {0} added to {1}'.format(dn, ACCOUNT_MAP[account]))
+                except Duplicate:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, ACCOUNT_MAP[account], error))
+                    STATUS = WARNING
+        if not SKIP_REMOVE:
+            for dn in account_identities:
+                if dn in dns:
+                    continue
+                NDUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.del_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509')
+                    else:
+                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(ACCOUNT_MAP[account], dn))
+                    print('Identity {0} removed from {1}'.format(dn, ACCOUNT_MAP[account]))
+                except IdentityError:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, ACCOUNT_MAP[account], error))
+        print('Summary %i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
 
     ACCOUNT_LIST = [
         'art', 'calib-muon', 'covid', 'dataprep', 'det-alfa', 'det-ibl',
-        'det-indet', 'det-larg', 'det-muon', 'det-slhc', 'det-tile',
+        'det-indet', 'det-larg', 'det-muon', 'det-slhc', 'det-tile', 'det-itk',
         'perf-egamma', 'perf-flavtag', 'perf-idtracking', 'perf-jets',
         'perf-muons', 'perf-tau', 'phys-beauty', 'phys-exotics', 'phys-gener',
-        'phys-hdbs', 'phys-hi', 'phys-higgs', 'phys-sm', 'phys-susy',
+        'phys-hdbs', 'phys-hi', 'phys-higgs', 'phys-hmbs', 'phys-higp', 'phys-sm', 'phys-susy',
         'phys-top', 'phys-valid', 'proj-evind', 'proj-sit', 'trig-daq',
         'trig-hlt', 'trig-l1calo'
     ]
     for account in ACCOUNT_LIST:
         NBUSERS = 0
-        attempts = 0
-        totattemps = 3
-        for attempts in range(0, totattemps):
-            res = ADMIN.call_method('list-members', '/atlas/{0}'.format(account))
-            if isinstance(res, list) and (attempts < totattemps - 1):
-                for user in res:
-                    NBUSERS += 1
-                    try:
-                        dn = user._DN
-                        ca = user._CA
-                        email = user._mail
-                        print(account, dn, ca, email)
-                        try:
-                            CLIENT.add_identity(account=account, identity=dn, authtype='X509', email=email, default=True)
-                            print('Identity {0} added to {1}'.format(dn, account))
-                        except Duplicate:
-                            pass
-                        except Exception as error:
-                            print(error)
-                    except:
-                        print('ERROR getting info for %s' % (user._DN))
-                        STATUS = WARNING
-                break
-            else:
-                sys.exit(CRITICAL)
-        print('%i users extracted from VOMS with %s' % (NBUSERS, account))
+        NDUSERS = 0
+        if "atlas/{}".format(account) not in group2id:
+            print("missing group 'atlas/{}'".format(account))
+            continue
+        dns = []
+        groupid = group2id["atlas/{}".format(account)]
+        account_identities = get_account_identities(account)
+        access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
+        for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2certs:
+                print("missing user details for userid {}".format(userid))
+                continue
+            for dn, ca, email in userid2certs[userid]:
+                dns.append(dn)
+                if dn in account_identities:
+                    continue
+                NBUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.add_identity(account=account, identity=dn, authtype='X509', email=email, default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(account, dn, email))
+                    print('Identity {0} added to {1}'.format(dn, account))
+                except Duplicate:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, account, error))
+                    STATUS = WARNING
+        if not SKIP_REMOVE:
+            for dn in account_identities:
+                if dn in dns:
+                    continue
+                NDUSERS += 1
+                try:
+                    if not TEST:
+                        CLIENT.del_identity(account=account, identity=dn, authtype='X509')
+                    else:
+                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(account, dn))
+                    print('Identity {0} removed from {1}'.format(dn, account))
+                except IdentityError:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(dn, account, error))
+        print('Summary %i (%i) users extracted from VOMS with %s' % (NBUSERS, NDUSERS, account))
 
     sys.exit(STATUS)
