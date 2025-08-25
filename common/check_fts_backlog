@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
  Copyright European Organization for Nuclear Research (CERN) 2013
 
@@ -9,27 +9,26 @@
  Authors:
  - Cedric Serfon, <cedric.serfon@cern.ch>, 2014-2018
  - Mario Lassnig, <mario.lassnig@cern.ch>, 2015
- - Eric Vaandering, <ewv@fnal.gov>, 2019-2021
+ - Eric Vaandering, <ewv@fnal.gov>, 2019-2022
  - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
 """
-from __future__ import print_function
 
 import os
 import sys
+from urllib.parse import urlparse
 
 import requests
 import urllib3
-try:
-    from urlparse import urlparse
-except ImportError:
-    from urllib.parse import urlparse
-
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from prometheus_client import CollectorRegistry, Gauge
 from rucio.common.config import config_get, config_get_bool
+from rucio.core import monitor
 from rucio.core.distance import update_distances
 from rucio.db.sqla.session import BASE, get_session
 
-from utils.common import probe_metrics
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
 
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
@@ -39,10 +38,6 @@ if BASE.metadata.schema:
     schema = BASE.metadata.schema + '.'
 else:
     schema = ''
-
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
 
 if __name__ == "__main__":
 
@@ -83,86 +78,87 @@ if __name__ == "__main__":
         UPDATE_DIST = True
 
     registry = CollectorRegistry()
-    g = Gauge('fts_submitted', '', labelnames=('hostname',), registry=registry)
-    errmsg = ''
-    for ftshost in FTSHOSTS.split(','):
-        print("=== %s ===" % ftshost)
-        parsed_url = urlparse(ftshost)
-        scheme, hostname, port = parsed_url.scheme, parsed_url.hostname, parsed_url.port
-        retvalue = CRITICAL
-        url = '%s/fts3/ftsmon/overview?dest_se=&source_se=&time_window=1&vo=%s' % (ftshost, VO)
-        busy_channels = []
-        busylimit = 5000
-        for attempt in range(0, 5):
-            result = None
-            try:
-                result = requests.get(url, verify=False, cert=(PROXY, PROXY))
-                res = result.json()
-                for channel in res['overview']['items']:
-                    src = channel['source_se']
-                    dst = channel['dest_se']
-                    if (src, dst) not in se_matrix:
-                        se_matrix[(src, dst)] = {'active': 0, 'submitted': 0, 'finished': 0, 'failed': 0,
-                                                 'transfer_speed': 0, 'mbps_link': 0}
-                    for state in ['submitted', 'active', 'finished', 'failed']:
+    with PrometheusPusher(registry, job_name='check_fts_backlog') as prometheus_config:
+        prefix: str = prometheus_config['prefix']
+        extra_prom_labels = prometheus_config['labels']
+        labelnames = ['hostname']
+        labelnames.extend(extra_prom_labels.keys())
+        g = Gauge(prefix + 'fts_submitted', '', labelnames=labelnames, registry=registry)
+
+        errmsg = ''
+        for ftshost in FTSHOSTS.split(','):
+            print("=== %s ===" % ftshost)
+            parsed_url = urlparse(ftshost)
+            scheme, hostname, port = parsed_url.scheme, parsed_url.hostname, parsed_url.port
+            retvalue = CRITICAL
+            url = '%s/fts3/ftsmon/overview?dest_se=&source_se=&time_window=1&vo=%s' % (ftshost, VO)
+            busy_channels = []
+            busylimit = 5000
+            for attempt in range(0, 5):
+                result = None
+                try:
+                    result = requests.get(url, verify=False, cert=(PROXY, PROXY))
+                    res = result.json()
+                    for channel in res['overview']['items']:
+                        src = channel['source_se']
+                        dst = channel['dest_se']
+                        if (src, dst) not in se_matrix:
+                            se_matrix[(src, dst)] = {'active': 0, 'submitted': 0, 'finished': 0, 'failed': 0,
+                                                     'transfer_speed': 0, 'mbps_link': 0}
+                        for state in ['submitted', 'active', 'finished', 'failed']:
+                            try:
+                                se_matrix[(src, dst)][state] += channel[state]
+                            except Exception:
+                                pass
                         try:
-                            se_matrix[(src, dst)][state] += channel[state]
+                            se_matrix[(src, dst)]['transfer_speed'] += channel['current']
+                            se_matrix[(src, dst)]['mbps_link'] += channel['current']
                         except Exception:
                             pass
-                    try:
-                        se_matrix[(src, dst)]['transfer_speed'] += channel['current']
-                        se_matrix[(src, dst)]['mbps_link'] += channel['current']
-                    except Exception:
-                        pass
-                    if CHECK_BUSY and 'submitted' in channel and channel['submitted'] >= busylimit:
-                        url_activities = '%s/fts3/ftsmon/config/activities/%s?source_se=%s&dest_se=%s' % (ftshost, VO,
-                                                                                                          src, dst)
-                        activities = {}
-                        try:
-                            s = requests.get(url_activities, verify=False, cert=(PROXY, PROXY))
-                            for key, val in s.json().items():
-                                activities[key] = val['SUBMITTED']
-                        except Exception as error:
-                            pass
-                        busy_channels.append({'src': src, 'dst': dst, 'submitted': channel['submitted'],
-                                              'activities': activities})
-                summary = res['summary']
-                hostname = hostname.replace('.', '_')
-                print('%s : Submitted : %s' % (hostname, summary['submitted']))
-                print('%s : Active : %s' % (hostname, summary['active']))
-                print('%s : Staging : %s' % (hostname, summary['staging']))
-                print('%s : Started : %s' % (hostname, summary['started']))
-                if busy_channels != []:
-                    print('Busy channels (>%s submitted):' % busylimit)
-                    for bc in busy_channels:
-                        activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
-                        print('  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
-                                                                       str(activities_str)))
-                probe_metrics.gauge('fts3.{hostname}.submitted').labels(hostname=hostname).set(summary['submitted']
-                                                                                               + summary['active']
-                                                                                               + summary['staging']
-                                                                                               + summary['started'])
 
-                g.labels(**{'hostname': hostname}).set((summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
-                retvalue = OK
-                break
-            except Exception as error:
-                retvalue = CRITICAL
-                if result and result.status_code:
-                    errmsg = 'Error when trying to get info from %s : HTTP status code %s. [%s]' % (
-                        ftshost, str(result.status_code), str(error))
-                else:
-                    errmsg = 'Error when trying to get info from %s. %s' % (ftshost, str(error))
-        if retvalue == CRITICAL:
-            print("All attempts failed. %s" % errmsg)
-        WORST_RETVALUE = max(retvalue, WORST_RETVALUE)
+                        if CHECK_BUSY and 'submitted' in channel and channel['submitted'] >= busylimit:
+                            url_activities = '%s/fts3/ftsmon/config/activities/%s?source_se=%s&dest_se=%s' % (
+                            ftshost, VO,
+                            src, dst)
+                            activities = {}
+                            try:
+                                s = requests.get(url_activities, verify=False, cert=(PROXY, PROXY))
+                                for key, val in s.json().items():
+                                    activities[key] = val['SUBMITTED']
+                            except Exception as error:
+                                pass
+                            busy_channels.append({'src': src, 'dst': dst, 'submitted': channel['submitted'],
+                                                  'activities': activities})
+                    summary = res['summary']
+                    hostname = hostname.replace('.', '_')
+                    print('%s : Submitted : %s' % (hostname, summary['submitted']))
+                    print('%s : Active : %s' % (hostname, summary['active']))
+                    print('%s : Staging : %s' % (hostname, summary['staging']))
+                    print('%s : Started : %s' % (hostname, summary['started']))
+                    if busy_channels != []:
+                        print('Busy channels (>%s submitted):' % busylimit)
+                        for bc in busy_channels:
+                            activities_str = ", ".join([("%s: %s" % (key, val)) for key, val in bc['activities'].items()])
+                            print('  %s to %s : %s submitted jobs (%s)' % (bc['src'], bc['dst'], bc['submitted'],
+                                                                           str(activities_str)))
+                    monitor.record_gauge('fts3.%s.submitted' % hostname,
+                                         value=(summary['submitted'] + summary['active']
+                                                + summary['staging'] + summary['started']))
+                    g.labels(**{'hostname': hostname}).set(
+                        (summary['submitted'] + summary['active'] + summary['staging'] + summary['started']))
+                    retvalue = OK
+                    break
+                except Exception as error:
+                    retvalue = CRITICAL
+                    if result and result.status_code:
+                        errmsg = 'Error when trying to get info from %s : HTTP status code %s. [%s]' % (
+                            ftshost, str(result.status_code), str(error))
+                    else:
+                        errmsg = 'Error when trying to get info from %s. %s' % (ftshost, str(error))
+            if retvalue == CRITICAL:
+                print("All attempts failed. %s" % errmsg)
+            WORST_RETVALUE = max(retvalue, WORST_RETVALUE)
 
-    if len(PROM_SERVERS):
-        for server in PROM_SERVERS:
-            try:
-                push_to_gateway(server.strip(), job='check_fts_backlog', registry=registry)
-            except:
-                continue
 
     if not UPDATE_DIST:
         sys.exit(WORST_RETVALUE)
