@@ -26,6 +26,7 @@ from email.MIMEBase import MIMEBase
 from email.MIMEMultipart import MIMEMultipart
 
 import requests
+from sqlalchemy import text
 
 from rucio.db.sqla.session import get_session
 
@@ -215,7 +216,7 @@ def find_mails_users(account, session):
 a.identity=b.identity and b.account='%s'  ''' % account
         if test_mode:
             logging.debug("start exec query: %s", query)
-        result = session.execute(query)
+        result = session.execute(text(query))
         if test_mode:
             logging.debug("end exec query")
         for row in result:
@@ -265,7 +266,7 @@ def find_mails_groups(rse, session):
  (select value from atlas_rucio.rse_attr_map where key = 'physgroup' and rse_id = atlas_rucio.rse2id('%s'))) ''' % rse
         if test_mode:
             logging.debug("start exec query: %s", query)
-        result = session.execute(query)
+        result = session.execute(text(query))
         if test_mode:
             logging.debug("end exec query")
         for row in result:
@@ -306,7 +307,7 @@ def get_rule_owners(scope, name, session):
         query = "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
         if False and test_mode:
             logging.debug("start exec query: %s", query)
-        result = session.execute(query)
+        result = session.execute(text(query))
         if False and test_mode:
             logging.debug("end exec query")
         for row in result:
@@ -907,7 +908,7 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
 
         if test_mode:
             logging.debug("start exec query: %s", query)
-        result = session.execute(query)
+        result = session.execute(text(query))
         if test_mode:
             logging.debug("end exec query")
 
