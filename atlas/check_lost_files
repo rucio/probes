@@ -146,22 +146,18 @@ def dirs_exist(dirs, create_if_not_exist=False):
     for check_dir in dirs:
         if not os.path.isdir(check_dir):
             if os.path.exists(check_dir):
-                if test_mode:
-                    logging.error('%s exists but not a directory', check_dir)
+                logging.error('%s exists but not a directory', check_dir)
                 return False
             if create_if_not_exist:
                 try:
-                    if test_mode:
-                        logging.info('mkdir missed directory %s', check_dir)
+                    logging.info('mkdir missed directory %s', check_dir)
                     os.mkdir(check_dir, 0o755)
                     continue
                 except OSError as error:
-                    if test_mode:
-                        logging.error('failed to mkdir missed directory %s: %s', check_dir, error)
+                    logging.error('failed to mkdir missed directory %s: %s', check_dir, error)
                     return False
             else:
-                if test_mode:
-                    logging.error('directory %s is missed, flag create_if_not_existis is %s', check_dir, create_if_not_exist)
+                logging.error('directory %s is missed, flag create_if_not_existis is %s', check_dir, create_if_not_exist)
                 return False
     return True
 
@@ -213,11 +209,9 @@ def find_mails_users(account, session):
     try:
         query = ''' select distinct a.email from atlas_rucio.identities a, atlas_rucio.account_map b where
 a.identity=b.identity and b.account='%s'  ''' % account
-        if test_mode:
-            logging.debug("start exec query: %s", query)
+        logging.debug("start exec query: %s", query)
         result = session.execute(text(query))
-        if test_mode:
-            logging.debug("end exec query")
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 mlow = str(col).lower()
@@ -263,11 +257,9 @@ def find_mails_groups(rse, session):
         query = ''' select distinct email from atlas_rucio.identities where identity in
  (select identity from atlas_rucio.account_map where account in
  (select value from atlas_rucio.rse_attr_map where key = 'physgroup' and rse_id = atlas_rucio.rse2id('%s'))) ''' % rse
-        if test_mode:
-            logging.debug("start exec query: %s", query)
+        logging.debug("start exec query: %s", query)
         result = session.execute(text(query))
-        if test_mode:
-            logging.debug("end exec query")
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 mails.append(str(col))
@@ -304,11 +296,9 @@ def get_rule_owners(scope, name, session):
     rule_owners = []
     try:
         query = "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
-        if False and test_mode:
-            logging.debug("start exec query: %s", query)
+        logging.debug("start exec query: %s", query)
         result = session.execute(text(query))
-        if False and test_mode:
-            logging.debug("end exec query")
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 rule_owners.append(str(col))
@@ -317,8 +307,7 @@ def get_rule_owners(scope, name, session):
         flog.write('get_rule_owners:')
         flog.write(str(error) + '\n')
 
-    if False and test_mode:
-        logging.debug("rules owner [%s] = %s", rule_owners_key, rule_owners)
+    logging.debug("rules owner [%s] = %s", rule_owners_key, rule_owners)
 
     rule_owners_dict[rule_owners_key] = rule_owners  # remember in the cache
     return rule_owners
@@ -344,8 +333,7 @@ def path_to_file(file_name):
 # collects reports for given email
 @print_time
 def report_collector(rse, account, session):
-    if test_mode:
-        logging.debug("report_collector was called with (%s, %s, %s)", rse, account, session)
+    logging.debug("report_collector was called with (%s, %s, %s)", rse, account, session)
     mails_reports = {}
     mail_list = []
     report_path = ''
@@ -361,8 +349,7 @@ def report_collector(rse, account, session):
     if mail_list == [] or report_path == '.txt' or report_path == 'report_.txt':
         return
 
-    if test_mode:
-        logging.debug("report_collector created mail_list=%s", mail_list)
+    logging.debug("report_collector created mail_list=%s", mail_list)
 
     for mail in mail_list:
         if mail not in mails_reports:
@@ -370,8 +357,7 @@ def report_collector(rse, account, session):
         else:
             mails_reports[mail].append(report_path)
 
-    if test_mode:
-        logging.debug("report_collector created mail_reports=%s", mails_reports)
+    logging.debug("report_collector created mail_reports=%s", mails_reports)
 
     return mails_reports
 
@@ -491,19 +477,16 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
     stat_text = ''
     stat_html = ''
     if to_mail in stat_mail.keys():
-        if test_mode:
-            logging.debug("to_mail=%s", str(to_mail))
-            logging.debug("stat_mail %s=%s", col1, str(stat_mail))
-            logging.debug("stat_count %s=%s", col1, str(stat_count))
+        logging.debug("to_mail=%s", str(to_mail))
+        logging.debug("stat_mail %s=%s", col1, str(stat_mail))
+        logging.debug("stat_count %s=%s", col1, str(stat_count))
         rsec = {}  # rsec[subj] = count
         for x in stat_mail[to_mail]:  # x = rse
             rsec[x] = stat_count[x]  # create not-sorted dictionary
-        if test_mode:
-            logging.debug("rsec=%s", str(rsec))
+        logging.debug("rsec=%s", str(rsec))
         tlist = sorted(rsec.items(), key=lambda el: el[1],
                        reverse=True)  # dictionary can not be sorted, but may be used to create a sorted tuple
-        if test_mode:
-            logging.debug("tlist=%s", str(tlist))
+        logging.debug("tlist=%s", str(tlist))
         stat_html += "<tr><td>%s</td><td>%s</td></tr>\n" % (col1, col2)
         total_counter = 0
         for subj, c in tlist:
@@ -670,8 +653,7 @@ def send_report(to_mail, report_paths):
 @print_time
 def report_gdp():
     # INIT
-    if test_mode:
-        logging.debug("making report for GDP")
+    logging.debug("making report for GDP")
     if not os.path.isfile(tmpdata_path):
         logging.error("no lost file list exists: %s", tmpdata_path)
         sys.exit(CRITICAL)
@@ -693,8 +675,7 @@ def report_by_account(session):
     :return:
     """
     # INIT
-    if test_mode:
-        logging.debug("making report by account")
+    logging.debug("making report by account")
     if not os.path.isfile(tmpdata_path):
         logging.error("lost files not downloaded")
         sys.exit(CRITICAL)
@@ -745,8 +726,7 @@ def report_by_account(session):
             data_per_account[acc].append(add_str)
             # {'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at})
 
-    if test_mode:
-        logging.debug("creating reports and sending")
+    logging.debug("creating reports and sending")
 
     # create report per account
     for account in data_per_account.keys():
@@ -762,16 +742,13 @@ def report_by_account(session):
 
     # send report by mail
     for account in data_per_account.keys():
-        if test_mode:
-            logging.debug("going to send the report")
+        logging.debug("going to send the report")
         accs.append(account)
 
-    if test_mode:
-        if data_per_account == {}:
-            logging.debug("nothing to send")
+    if data_per_account == {}:
+        logging.debug("nothing to send")
 
-    if test_mode:
-        logging.debug("report by accounts done")
+    logging.debug("report by accounts done")
     fi.close()
     return accs
 
@@ -820,8 +797,7 @@ def report_by_rses(session):
     for x in data_per_rse.keys():
         stat_rse_count[x] = len(data_per_rse[x])
 
-    if test_mode:
-        logging.debug("stat_rse_count = %s", str(stat_rse_count))
+    logging.debug("stat_rse_count = %s", str(stat_rse_count))
 
     return data_per_rse.keys()
 
@@ -905,11 +881,9 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
 
             query = query1_with_fixed_interval  #
 
-        if test_mode:
-            logging.debug("start exec query: %s", query)
+        logging.debug("start exec query: %s", query)
         result = session.execute(text(query))
-        if test_mode:
-            logging.debug("end exec query")
+        logging.debug("end exec query")
 
         lines_counter = 0
         processed_files = {}
@@ -1032,8 +1006,7 @@ def main():
             reps = report_collector('', acc, session)
             mail_rep = merge_dicts(mail_rep, reps)
     if gdp:
-        if test_mode:
-            logging.debug('summary report to gdp')
+        logging.debug('summary report to gdp')
         l_acc = report_gdp()
         for acc in l_acc:
             reps = report_collector('', acc, session)
