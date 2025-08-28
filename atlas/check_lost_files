@@ -53,7 +53,6 @@ gdp = True
 test_mode = False
 test_mode_send_real_emails = False  # True with CAUTION: send e-mails to REAL USERS in test mode (demonstration pre-release mode)
 test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
-test_mode_print_time = True  # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, without cache or dump
 create_dirs = True
@@ -120,7 +119,7 @@ log_path = log_dir + "/" + timestamp_long + '.log'
 # decorator to print method execution time (when flags are set)
 def print_time(method):
     def inner(*args, **kwargs):
-        if not test_mode or not test_mode_print_time:  # print only in test mode when test_mode_print_time is on
+        if not test_mode:
             return method(*args, **kwargs)
         arg_names = method.func_code.co_varnames[:method.func_code.co_argcount]
         method_args = ', '.join('%s=%r' % entry for entry in
