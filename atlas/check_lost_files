@@ -13,27 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import calendar
 import logging
 import os
-import sys
 import smtplib
+import sys
 import time
-import requests
-import calendar
-from email.mime.text import MIMEText
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEBase import MIMEBase
+from datetime import date, datetime
 from email import Encoders
-import mimetypes  # to guess mimetype
-# from rucio.common.config import config_get
-from datetime import datetime
-from datetime import date
-# pandas to prepare statistics  RSE:scope:count, may be used to re-implement all the script
-import pandas as pd
+from email.mime.text import MIMEText
+from email.MIMEBase import MIMEBase
+from email.MIMEMultipart import MIMEMultipart
+
+import requests
 
 from rucio.db.sqla.session import get_session
 
-# from rucio.core import monitor
+# The pandas module is not part of a standard Rucio installation.
+try:
+    import pandas as pd
+except ImportError:
+    sys.exit('This probe requires the pandas module in order to function')
 
 logging.basicConfig(
     format='%(asctime)s  %(levelname)-8s  %(message)s',
