@@ -145,9 +145,9 @@ def dirs_exist(dirs, create_if_not_exist=False):
                         print ('DEBUG: mkdir missed directory %s' % check_dir)
                     os.mkdir(check_dir, 0755)
                     continue
-                except OSError as err:
+                except OSError as error:
                     if test_mode:
-                        print ('DEBUG: failed to mkdir missed directory %s: %s' % (check_dir, err))
+                        print ('DEBUG: failed to mkdir missed directory %s: %s' % (check_dir, error))
                     return False
             else:
                 if test_mode:
@@ -215,10 +215,10 @@ a.identity=b.identity and b.account='%s'  ''' % account
                 if mlow not in mails_lowcase:  # avoid of sending two emails  to same email in different cases (Alessandro.de.Salvo@cern.ch and alessandro.de.salvo@cern.ch)
                     mails_lowcase.append(mlow)
                     mails.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('find_mails_users\n')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
         sys.exit(CRITICAL)
     if account in ddm_admin_accounts:
         mails = ddm_admin_mails
@@ -262,10 +262,10 @@ def find_mails_groups(rse, session):
         for row in result:
             for col in row:
                 mails.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('find_mails_groups\n')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
         sys.exit(CRITICAL)
 
     if always_report_email not in mails:
@@ -303,10 +303,10 @@ def get_rule_owners(scope, name, session):
         for row in result:
             for col in row:
                 rule_owners.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('get_rule_owners:')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
 
     if False and test_mode:
         print "DEBUG: rules owner [%s] = %s" % (rule_owners_key, rule_owners)
@@ -921,9 +921,9 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
             lines_counter += 1
             f.write(' '.join(str(x) for x in row) + '\n')
 
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
-        flog.write('ERROR: get lost files from rucio exception: %s\n' % str(e))
+        flog.write('ERROR: get lost files from rucio exception: %s\n' % str(error))
         return False
 
     flog.write('INFO: %d of lost files lines were stored from rucio result\n' % lines_counter)
