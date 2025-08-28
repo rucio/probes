@@ -121,15 +121,11 @@ def print_time(method):
     def inner(*args, **kwargs):
         if not test_mode:
             return method(*args, **kwargs)
-        arg_names = method.func_code.co_varnames[:method.func_code.co_argcount]
-        method_args = ', '.join('%s=%r' % entry for entry in
-                                zip(arg_names, args[:len(arg_names)]) + [("args", list(args[len(arg_names):]))] + [
-                                    ("kwargs", kwargs)]) + ")"
-        logging.debug('is up to start %r(%s)', method.__name__, method_args)
+        logging.debug('is up to start %r with args=%r and kwargs=%r)', method.__name__, args, kwargs)
         tstart = time.time()
         result = method(*args, **kwargs)
         tend = time.time()
-        logging.debug('finished in %.3f s: %r(%s)', tend - tstart, method.__name__, method_args)
+        logging.debug('finished in %.3f s: %r', tend - tstart, method.__name__)
         return result
 
     return inner
