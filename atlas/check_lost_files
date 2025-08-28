@@ -20,10 +20,10 @@ import smtplib
 import sys
 import time
 from datetime import date, datetime
-from email import Encoders
+from email.encoders import encode_base64
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.MIMEBase import MIMEBase
-from email.MIMEMultipart import MIMEMultipart
 
 import requests
 from sqlalchemy import text
@@ -648,7 +648,7 @@ def send_report(to_mail, report_paths):
         part = MIMEBase(t_main, t_sub)
         fr = open(report_path_ext, 'rb')
         part.set_payload(fr.read())
-        Encoders.encode_base64(part)
+        encode_base64(part)
         part.add_header('Content-Disposition', 'attachment; filename="%s"' % f_name)
         msg.attach(part)
 
