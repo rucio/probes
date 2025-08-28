@@ -149,7 +149,7 @@ def dirs_exist(dirs, create_if_not_exist=False):
                 try:
                     if test_mode:
                         logging.info('mkdir missed directory %s', check_dir)
-                    os.mkdir(check_dir, 0755)
+                    os.mkdir(check_dir, 0o755)
                     continue
                 except OSError as error:
                     if test_mode:
