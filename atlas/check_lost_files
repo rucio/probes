@@ -404,7 +404,7 @@ def prepare_rse_dataset_table(to_mail):
         return '', ''
     stat_text = "\nRSE-dataset_type-count table:\n"
     stat_html = "<tr><td>RSE</td><td>Dataset type</td><td>Lost files</td></tr>\n"
-    for it in sr.iteritems():
+    for it in sr.items():
         rse = it[0][0]
         dset = it[0][1]
         count = it[1]
@@ -444,7 +444,7 @@ def prepare_rse_scope_table(to_mail):
         return '', ''
     stat_text = "\nRSE-scope-count table:\n"
     stat_html = "<tr><td>RSE</td><td>Scope</td><td>Lost files</td></tr>\n"
-    for it in sr.iteritems():
+    for it in sr.items():
         rse = it[0][0]
         scope = it[0][1]
         count = it[1]
