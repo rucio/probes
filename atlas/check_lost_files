@@ -67,7 +67,7 @@ zip_tmp_file = True  # works only if remove_tmp_file is False
 max_unzipped_tmp_file_size = 1 * 1024 * 1024
 
 always_report_email = 'fabio.luchetti@cern.ch'
-gdp_emails = ['atlas-adc-dpa@cern.ch', 'fabio.luchetti@cern.ch']
+gdp_emails = ['atlas-adc-dpa@cern.ch', 'atlas-phys-dpd-production@cern.ch', 'fabio.luchetti@cern.ch']
 from_email = 'atlas-adc-ddm-support@cern.ch'
 ddm_admin_accounts = ['ddmadmin', 'root']
 ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
