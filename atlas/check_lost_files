@@ -1,34 +1,46 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2015
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Authors:
-# - Tomas Javurek, Cedric Serfon, 2015
-# - Alexander Bogdanchikov, 2019-2020
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import os
-import sys
-import smtplib
-import time
-import requests
 import calendar
+import logging
+import os
+import smtplib
+import sys
+import time
+from datetime import date, datetime
+from email.encoders import encode_base64
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEBase import MIMEBase
-from email import Encoders
-import mimetypes  # to guess mimetype
-# from rucio.common.config import config_get
-from datetime import datetime
-from datetime import date
-# pandas to prepare statistics  RSE:scope:count, may be used to re-implement all the script
-import pandas as pd
+
+import requests
+from sqlalchemy import text
 
 from rucio.db.sqla.session import get_session
 
-# from rucio.core import monitor
+# The pandas module is not part of a standard Rucio installation.
+try:
+    import pandas as pd
+except ImportError:
+    sys.exit('This probe requires the pandas module in order to function')
+
+logging.basicConfig(
+    format='%(asctime)s  %(levelname)-8s  %(message)s',
+    level=logging.DEBUG,
+    stream=sys.stdout,
+)
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
@@ -41,7 +53,6 @@ gdp = True
 test_mode = False
 test_mode_send_real_emails = False  # True with CAUTION: send e-mails to REAL USERS in test mode (demonstration pre-release mode)
 test_mode_use_tmp_file = True  # for test_mode: if dump is not ready, try to use use tmp file instead of query rucio.
-test_mode_print_time = True  # count and print time spent in methods with @print_time decoration
 force_to_work_any_day = True  # if True and test_mode=True, force to run any day
 force_rucio_select = False  # set it to True to force selection from rucio, without cache or dump
 create_dirs = True
@@ -56,7 +67,7 @@ zip_tmp_file = True  # works only if remove_tmp_file is False
 max_unzipped_tmp_file_size = 1 * 1024 * 1024
 
 always_report_email = 'fabio.luchetti@cern.ch'
-gdp_emails = ['atlas-adc-dpa@cern.ch', 'fabio.luchetti@cern.ch']
+gdp_emails = ['atlas-adc-dpa@cern.ch', 'atlas-phys-dpd-production@cern.ch', 'fabio.luchetti@cern.ch']
 from_email = 'atlas-adc-ddm-support@cern.ch'
 ddm_admin_accounts = ['ddmadmin', 'root']
 ddm_admin_mails = ['atlas-adc-ddm-support@cern.ch']
@@ -108,18 +119,13 @@ log_path = log_dir + "/" + timestamp_long + '.log'
 # decorator to print method execution time (when flags are set)
 def print_time(method):
     def inner(*args, **kwargs):
-        if not test_mode or not test_mode_print_time:  # print only in test mode when test_mode_print_time is on
+        if not test_mode:
             return method(*args, **kwargs)
-        arg_names = method.func_code.co_varnames[:method.func_code.co_argcount]
-        method_args = ', '.join('%s=%r' % entry for entry in
-                                zip(arg_names, args[:len(arg_names)]) + [("args", list(args[len(arg_names):]))] + [
-                                    ("kwargs", kwargs)]) + ")"
-        print '%s is up to start %r(%s)' % (datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), method.__name__, method_args)
+        logging.debug('is up to start %r with args=%r and kwargs=%r)', method.__name__, args, kwargs)
         tstart = time.time()
         result = method(*args, **kwargs)
         tend = time.time()
-        print '%s finished in %.3f s: %r(%s)' % (
-            datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), tend - tstart, method.__name__, method_args)
+        logging.debug('finished in %.3f s: %r', tend - tstart, method.__name__)
         return result
 
     return inner
@@ -136,23 +142,18 @@ def dirs_exist(dirs, create_if_not_exist=False):
     for check_dir in dirs:
         if not os.path.isdir(check_dir):
             if os.path.exists(check_dir):
-                if test_mode:
-                    print 'DEBUG: failure: %s exists but not a directory ' % check_dir
+                logging.error('%s exists but not a directory', check_dir)
                 return False
             if create_if_not_exist:
                 try:
-                    if test_mode:
-                        print ('DEBUG: mkdir missed directory %s' % check_dir)
-                    os.mkdir(check_dir, 0755)
+                    logging.info('mkdir missed directory %s', check_dir)
+                    os.mkdir(check_dir, 0o755)
                     continue
-                except OSError as err:
-                    if test_mode:
-                        print ('DEBUG: failed to mkdir missed directory %s: %s' % (check_dir, err))
+                except OSError as error:
+                    logging.error('failed to mkdir missed directory %s: %s', check_dir, error)
                     return False
             else:
-                if test_mode:
-                    print ('DEBUG: failure: directory %s is missed, flag create_if_not_existis is %s ' % (
-                        check_dir, create_if_not_exist))
+                logging.error('directory %s is missed, flag create_if_not_existis is %s', check_dir, create_if_not_exist)
                 return False
     return True
 
@@ -175,10 +176,10 @@ def run_judger(run_days):
         flog.write('Today is %s. This is NOT my working day! I am working only on:\n' % today)
         flog.write("My run days are: " + str(run_days) + '\n')
         if test_mode and force_to_work_any_day:
-            print (
-                    ("INFO:  Normally I do not run on %s. My run days are %s. " +
-                     "Now I run because test_mode and force_to_work_any_day flags are set\n") %
-                    (today, str(run_days))
+            logging.info(
+                "Normally I do not run on %s. My run days are %s. "
+                "Now I run because test_mode and force_to_work_any_day flags are set",
+                today, str(run_days)
             )
             flog.write("The test_mode and force_to_work_any_day flags are set, I will run\n")
             return True
@@ -204,21 +205,19 @@ def find_mails_users(account, session):
     try:
         query = ''' select distinct a.email from atlas_rucio.identities a, atlas_rucio.account_map b where
 a.identity=b.identity and b.account='%s'  ''' % account
-        if test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
-        result = session.execute(query)
-        if test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
+        logging.debug("start exec query: %s", query)
+        result = session.execute(text(query))
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 mlow = str(col).lower()
                 if mlow not in mails_lowcase:  # avoid of sending two emails  to same email in different cases (Alessandro.de.Salvo@cern.ch and alessandro.de.salvo@cern.ch)
                     mails_lowcase.append(mlow)
                     mails.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('find_mails_users\n')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
         sys.exit(CRITICAL)
     if account in ddm_admin_accounts:
         mails = ddm_admin_mails
@@ -254,18 +253,16 @@ def find_mails_groups(rse, session):
         query = ''' select distinct email from atlas_rucio.identities where identity in
  (select identity from atlas_rucio.account_map where account in
  (select value from atlas_rucio.rse_attr_map where key = 'physgroup' and rse_id = atlas_rucio.rse2id('%s'))) ''' % rse
-        if test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
-        result = session.execute(query)
-        if test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
+        logging.debug("start exec query: %s", query)
+        result = session.execute(text(query))
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 mails.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('find_mails_groups\n')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
         sys.exit(CRITICAL)
 
     if always_report_email not in mails:
@@ -295,21 +292,18 @@ def get_rule_owners(scope, name, session):
     rule_owners = []
     try:
         query = "select distinct(account) from atlas_rucio.rules where scope='%s' and name='%s'" % (scope, name)
-        if False and test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
-        result = session.execute(query)
-        if False and test_mode:
-            print (datetime.today().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
+        logging.debug("start exec query: %s", query)
+        result = session.execute(text(query))
+        logging.debug("end exec query")
         for row in result:
             for col in row:
                 rule_owners.append(str(col))
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
         flog.write('get_rule_owners:')
-        flog.write(str(e) + '\n')
+        flog.write(str(error) + '\n')
 
-    if False and test_mode:
-        print "DEBUG: rules owner [%s] = %s" % (rule_owners_key, rule_owners)
+    logging.debug("rules owner [%s] = %s", rule_owners_key, rule_owners)
 
     rule_owners_dict[rule_owners_key] = rule_owners  # remember in the cache
     return rule_owners
@@ -335,8 +329,7 @@ def path_to_file(file_name):
 # collects reports for given email
 @print_time
 def report_collector(rse, account, session):
-    if test_mode:
-        print ("DEBUG: report_collector was called with (%s, %s, %s)" % (rse, account, session))
+    logging.debug("report_collector was called with (%s, %s, %s)", rse, account, session)
     mails_reports = {}
     mail_list = []
     report_path = ''
@@ -352,8 +345,7 @@ def report_collector(rse, account, session):
     if mail_list == [] or report_path == '.txt' or report_path == 'report_.txt':
         return
 
-    if test_mode:
-        print ("DEBUG: report_collector created mail_list=%s" % mail_list)
+    logging.debug("report_collector created mail_list=%s", mail_list)
 
     for mail in mail_list:
         if mail not in mails_reports:
@@ -361,8 +353,7 @@ def report_collector(rse, account, session):
         else:
             mails_reports[mail].append(report_path)
 
-    if test_mode:
-        print ("DEBUG: report_collector created mail_reports=%s" % mails_reports)
+    logging.debug("report_collector created mail_reports=%s", mails_reports)
 
     return mails_reports
 
@@ -413,7 +404,7 @@ def prepare_rse_dataset_table(to_mail):
         return '', ''
     stat_text = "\nRSE-dataset_type-count table:\n"
     stat_html = "<tr><td>RSE</td><td>Dataset type</td><td>Lost files</td></tr>\n"
-    for it in sr.iteritems():
+    for it in sr.items():
         rse = it[0][0]
         dset = it[0][1]
         count = it[1]
@@ -453,7 +444,7 @@ def prepare_rse_scope_table(to_mail):
         return '', ''
     stat_text = "\nRSE-scope-count table:\n"
     stat_html = "<tr><td>RSE</td><td>Scope</td><td>Lost files</td></tr>\n"
-    for it in sr.iteritems():
+    for it in sr.items():
         rse = it[0][0]
         scope = it[0][1]
         count = it[1]
@@ -482,19 +473,16 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
     stat_text = ''
     stat_html = ''
     if to_mail in stat_mail.keys():
-        if test_mode:
-            print "to_mail=" + str(to_mail)
-            print "stat_mail %s=" % col1 + str(stat_mail)
-            print "stat_count %s=" % col1 + str(stat_count)
+        logging.debug("to_mail=%s", str(to_mail))
+        logging.debug("stat_mail %s=%s", col1, str(stat_mail))
+        logging.debug("stat_count %s=%s", col1, str(stat_count))
         rsec = {}  # rsec[subj] = count
         for x in stat_mail[to_mail]:  # x = rse
             rsec[x] = stat_count[x]  # create not-sorted dictionary
-        if test_mode:
-            print "rsec=" + str(rsec)
+        logging.debug("rsec=%s", str(rsec))
         tlist = sorted(rsec.items(), key=lambda el: el[1],
                        reverse=True)  # dictionary can not be sorted, but may be used to create a sorted tuple
-        if test_mode:
-            print "tlist=" + str(tlist)
+        logging.debug("tlist=%s", str(tlist))
         stat_html += "<tr><td>%s</td><td>%s</td></tr>\n" % (col1, col2)
         total_counter = 0
         for subj, c in tlist:
@@ -516,12 +504,14 @@ def prepare_stat_table(to_mail, stat_mail, stat_count, col1, col2):
 def send_report(to_mail, report_paths):
     # re-defining mailing list
     if test_mode and not test_mode_send_real_emails:
-        print ("DEBUG: was called: send_report (to_mail=%s, report_paths=%s) " % (to_mail, ", ".join(report_paths)))
+        logging.debug("was called: send_report (to_mail=%s, report_paths=%s)", to_mail, ", ".join(report_paths))
         if not any(s.lower() == to_mail.lower() for s in mails_to_test):
-            print 'Test_mode: report is not sent, because %s  is not specified in mails_to_test: %s' % (
-                to_mail, mails_to_test)
+            logging.info(
+                'Test_mode: report is not sent, because %s is not specified in mails_to_test: %s',
+                to_mail, mails_to_test
+            )
             return
-        print 'Test_mode: mail to %s to be sent to tester %s  instead' % (to_mail, tester_emails)
+        logging.info('Test_mode: mail to %s to be sent to tester %s instead', to_mail, tester_emails)
         recipients = tester_emails
     else:
         recipients = [to_mail]
@@ -618,12 +608,12 @@ def send_report(to_mail, report_paths):
     msg.attach(msg_alt)
 
     # attachments
-    print "send to %s paths: %s" % (to_mail, str(report_paths))
+    logging.info("send to %s paths: %s", to_mail, str(report_paths))
     for report_path in report_paths:
         report_path_ext = path_to_file(report_path)
-        print "report_path='%s', report_path_ext='%s'" % (report_path, report_path_ext)
+        logging.info("report_path='%s', report_path_ext='%s'", report_path, report_path_ext)
         f_name = os.path.basename(report_path_ext)
-        print "report_path='%s', report_path_ext='%s', f_name='%s'" % (report_path, report_path_ext, f_name)
+        logging.info("report_path='%s', report_path_ext='%s', f_name='%s'", report_path, report_path_ext, f_name)
         ext = os.path.splitext(f_name)[1]
         # tried to use mimetypes.guess() -- not good, lets hardcode few mimetypes
         if ext == ".txt":
@@ -636,7 +626,7 @@ def send_report(to_mail, report_paths):
         part = MIMEBase(t_main, t_sub)
         fr = open(report_path_ext, 'rb')
         part.set_payload(fr.read())
-        Encoders.encode_base64(part)
+        encode_base64(part)
         part.add_header('Content-Disposition', 'attachment; filename="%s"' % f_name)
         msg.attach(part)
 
@@ -659,10 +649,9 @@ def send_report(to_mail, report_paths):
 @print_time
 def report_gdp():
     # INIT
-    if test_mode:
-        print "DEBUG: making report for GDP"
+    logging.debug("making report for GDP")
     if not os.path.isfile(tmpdata_path):
-        print "ERROR: no lost file list exists: %s" % tmpdata_path
+        logging.error("no lost file list exists: %s", tmpdata_path)
         sys.exit(CRITICAL)
 
     file_report_name = reports_dir + '/' + 'report_gdp' + '.txt'
@@ -682,11 +671,9 @@ def report_by_account(session):
     :return:
     """
     # INIT
-    if test_mode:
-        print "DEBUG: making report by account"
-        print "|||||||||||||||||||||||||||||||"
+    logging.debug("making report by account")
     if not os.path.isfile(tmpdata_path):
-        print "ERROR: lost files not downloaded"
+        logging.error("lost files not downloaded")
         sys.exit(CRITICAL)
     fi = open(tmpdata_path, 'r')
     data_per_account = {}
@@ -722,12 +709,11 @@ def report_by_account(session):
             if own not in accounts:
                 accounts.append(own)
         if False and test_mode:  #
-            print 'INFO:', rse_name, account, dataset, data_name
+            logging.debug('%s %s %s %s', rse_name, account, dataset, data_name)
             if accounts == []:
-                print "DEBUG: there is no account to be notified."
+                logging.debug("there is no account to be notified")
             else:
-                print "DEBUG: rule owners found:", accounts
-            print '======================='
+                logging.debug("rule owners found: %s", accounts)
 
         add_str = "%s %s %s %s\n" % (scope, dataset, data_name, updated_at)  # for some strange reason f
         for acc in accounts:
@@ -736,8 +722,7 @@ def report_by_account(session):
             data_per_account[acc].append(add_str)
             # {'scope': scope, 'name': data_name, 'dataset': dataset, 'rse': rse_name, 'time': updated_at})
 
-    if test_mode:
-        print "DEBUG: creating reports and sending."
+    logging.debug("creating reports and sending")
 
     # create report per account
     for account in data_per_account.keys():
@@ -753,16 +738,13 @@ def report_by_account(session):
 
     # send report by mail
     for account in data_per_account.keys():
-        if test_mode:
-            print "DEBUG: going to send the report."
+        logging.debug("going to send the report")
         accs.append(account)
 
-    if test_mode:
-        if data_per_account == {}:
-            print "DEBUG: nothing to send."
+    if data_per_account == {}:
+        logging.debug("nothing to send")
 
-    if test_mode:
-        print "DEBUG: report by accounts done."
+    logging.debug("report by accounts done")
     fi.close()
     return accs
 
@@ -774,7 +756,7 @@ def report_by_rses(session):
     rses = []
     # INIT
     if not os.path.isfile(tmpdata_path):
-        print "ERROR: lost files not downloaded"
+        logging.error("lost files not downloaded")
         sys.exit(CRITICAL)
     fi = open(tmpdata_path, 'r')
     data_per_rse = {}
@@ -811,8 +793,7 @@ def report_by_rses(session):
     for x in data_per_rse.keys():
         stat_rse_count[x] = len(data_per_rse[x])
 
-    if test_mode:
-        print "stat_rse_count = %s\n" % str(stat_rse_count)
+    logging.debug("stat_rse_count = %s", str(stat_rse_count))
 
     return data_per_rse.keys()
 
@@ -835,7 +816,7 @@ def get_lost_files_cache():
             os.system(unzip_cmd + ' ' + tmpdata_path_ext)
             # rm tmpdata_path may be here
         if os.path.isfile(tmpdata_path) and os.stat(tmpdata_path).st_size > 0:
-            print 'get lost files from the cache %s\n' % tmpdata_path
+            logging.info('get lost files from the cache %s', tmpdata_path)
             flog.write('INFO: get lost files list from %s\n' % tmpdata_path)
             return True
     return False
@@ -896,11 +877,9 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
 
             query = query1_with_fixed_interval  #
 
-        if test_mode:
-            print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " start exec query: " + query)
-        result = session.execute(query)
-        if test_mode:
-            print (datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + " end exec query")
+        logging.debug("start exec query: %s", query)
+        result = session.execute(text(query))
+        logging.debug("end exec query")
 
         lines_counter = 0
         processed_files = {}
@@ -912,7 +891,10 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
                 # other fields goes into attachment for some sake.
                 f_did = row[0] + ':' + row[1] + ':' + row[3] + ':' + row[4]
                 if f_did in processed_files:
-                    print "The file report (same scope/filename/dataset/rse) is duplicated in rucio select results: " + f_did
+                    logging.info(
+                        "The file report (same scope/filename/dataset/rse) is duplicated in rucio select results: %s",
+                        f_did
+                    )
                     continue
                 processed_files.add(f_did)
 
@@ -921,9 +903,9 @@ def get_lost_files_rucio(session, outfile=tmpdata_path):
             lines_counter += 1
             f.write(' '.join(str(x) for x in row) + '\n')
 
-    except Exception, e:
+    except Exception as error:
         flog = open(log_path, 'a')
-        flog.write('ERROR: get lost files from rucio exception: %s\n' % str(e))
+        flog.write('ERROR: get lost files from rucio exception: %s\n' % str(error))
         return False
 
     flog.write('INFO: %d of lost files lines were stored from rucio result\n' % lines_counter)
@@ -959,7 +941,7 @@ def get_lost_files_dump(session):
             # select only unique files (id = scope-filename-dataset-rse). It may drastically increase the time of large list reception
             f_did = data[0] + ':' + data[1] + ':' + data[3] + ':' + data[4]
             if f_did in processed_files:
-                print "The file report is duplicated in results from dump: " + f_did
+                logging.info("The file report is duplicated in results from dump: %s", f_did)
                 continue
             processed_files.add(f_did)
 
@@ -987,25 +969,25 @@ def main():
     # get input file
     get_input = False
     if force_rucio_select:
-        print 'INFO: forced_rucio_select flag is on -> only rucio select will start\n'
+        logging.info('forced_rucio_select flag is on -> only rucio select will start')
         get_input = get_lost_files_rucio(session)
         if not get_input:
-            print 'Error: forced rucio select failed, exit\n'
+            logging.error('forced rucio select failed, exit')
             sys.exit(CRITICAL)
     else:
         if read_from_cache:
             get_input = get_lost_files_cache()
         if not get_input:
-            print 'get lost files from the dump\n'
+            logging.info('get lost files from the dump')
             get_input = get_lost_files_dump(session)
             if not get_input:
-                print 'get lost files from rucio\n'
+                logging.info('get lost files from rucio')
                 get_input = get_lost_files_rucio(session)
                 if not get_input:
-                    print 'ERROR: failed to get lost files from cache, dump, rucio. Exit now.\n'
+                    logging.error('failed to get lost files from cache, dump, rucio. Exit now.')
                     sys.exit(CRITICAL)
 
-    print 'get lost files list finished successfully\n'
+    logging.info('get lost files list finished successfully')
 
     # make and sent report to groups
     if groups:
@@ -1020,15 +1002,14 @@ def main():
             reps = report_collector('', acc, session)
             mail_rep = merge_dicts(mail_rep, reps)
     if gdp:
-        if test_mode:
-            print "DEBUG: summary report to gdp"
+        logging.debug('summary report to gdp')
         l_acc = report_gdp()
         for acc in l_acc:
             reps = report_collector('', acc, session)
             mail_rep = merge_dicts(mail_rep, reps)
 
     if len(list(set(mail_rep.keys()))) != len(mail_rep.keys()):
-        print "ERROR: list of emails is not distinct"
+        logging.error('list of emails is not distinct')
         sys.exit('ERROR: list of emails is not distinct')
 
     if test_mode:
