@@ -22,6 +22,7 @@ import traceback
 
 from sqlalchemy import text
 
+from rucio.common.types import InternalAccount, InternalScope
 from rucio.core.scope import add_scope
 from rucio.db.sqla.session import get_session
 
@@ -58,7 +59,7 @@ where writestatus='valid'
 and not exists (select 1 from atlas_rucio.scopes where scope = projecttag)
 and projecttag not in ('user', 'group', 'group10', 'user10', 'user09', 'group', 'data', 'condR2')'''
         for project, in session.execute(text(query)):
-            add_scope(scope=project, account='root')
+            add_scope(scope=InternalScope(project), account=InternalAccount('root'))
 
         # import naming convention
         query = '''select projecttag, nomenclaturetemplate
