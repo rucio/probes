@@ -18,6 +18,11 @@ Probe to check the locked expired rules or datasets with locked rules
 '''
 
 import sys
+from datetime import datetime
+
+from sqlalchemy import and_, select, null, true
+
+from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
 # Exit statuses
@@ -30,26 +35,49 @@ def main():
     '''
     status = OK
     session = get_session()
+
+    base_statement = select(
+        models.ReplicationRule.id,
+        models.ReplicationRule.name,
+        models.ReplicationRule.scope,
+        models.ReplicationRule.rse_expression,
+    )
+
     try:
-        query = "select rawtohex(id), scope, name, rse_expression from atlas_rucio.rules where locked=1 and expires_at<sys_extract_utc(localtimestamp)"
+        expired_locked_rules = base_statement.where(
+            and_(
+                models.ReplicationRule.locked == true(),
+                models.ReplicationRule.expires_at < datetime.utcnow()  # see https://github.com/rucio/rucio/issues/6476
+            )
+        )
         print('Locked expired rules')
-        for row in session.execute(query):
+        for row in session.execute(expired_locked_rules):
             status = CRITICAL
             print(row[0], row[1], row[2])
+
     except Exception as error:
         print(error)
         status = UNKNOWN
         sys.exit(status)
     try:
-        query = """select rawtohex(c.id), c.scope, c.name, c.rse_expression from atlas_rucio.rules c,
-                   (select a.scope, a.name from atlas_rucio.dids a
-                   where a.expired_at is not null and a.expired_at < sys_extract_utc(localtimestamp)
-                   and exists (select 1 from atlas_rucio.rules b where a.scope=b.scope and a.name=b.name and locked=1)) d
-                   where c.scope=d.scope and c.name=d.name and locked=1"""
+        dids_of_locked_expired_rules = base_statement.join(
+            models.DataIdentifier,
+            and_(
+                models.ReplicationRule.scope == models.DataIdentifier.scope,
+                models.ReplicationRule.name == models.DataIdentifier.name,
+            ),
+        ).where(
+            and_(
+                models.ReplicationRule.locked == true(),
+                models.DataIdentifier.expired_at != null(),
+                models.DataIdentifier.expired_at < datetime.utcnow()  # see https://github.com/rucio/rucio/issues/6476
+            )
+        )
         print('Datasets expired with locked rules')
-        for row in session.execute(query):
+        for row in session.execute(dids_of_locked_expired_rules):
             status = CRITICAL
             print(row[0], row[1], row[2], row[3])
+
     except Exception as error:
         print(error)
         status = UNKNOWN
