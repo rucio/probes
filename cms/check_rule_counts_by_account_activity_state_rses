@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+# Copyright 2012-2024 CERN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Christos Emmanouil, <christos.emmanouil@cern.ch>, 2024
+
+"""
+Probe to check number and volume of rules per account, state, activity, source replica expression and rse expression.
+"""
+
+import sys
+import traceback
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
+
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
+from rucio.common.types import InternalScope
+from rucio.db.sqla.constants import RuleState
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+if __name__ == "__main__":
+    try:
+        session = get_session()
+
+        stmt = (
+            select(
+                models.ReplicationRule.account,
+                models.ReplicationRule.state,
+                models.ReplicationRule.rse_expression,
+                models.ReplicationRule.source_replica_expression,
+                models.ReplicationRule.activity,
+                func.count(func.distinct(models.ReplicationRule.id)),
+            )
+            .select_from(models.ReplicationRule)
+            .where(models.ReplicationRule.scope == InternalScope("cms"))
+            .group_by(
+                models.ReplicationRule.account,
+                models.ReplicationRule.state,
+                models.ReplicationRule.rse_expression,
+                models.ReplicationRule.source_replica_expression,
+                models.ReplicationRule.activity,
+            )
+            .with_hint(models.ReplicationRule, "INDEX_FFS(requests RULES_PK)", "oracle")
+            .with_hint(
+                models.ReplicationRule, "INDEX_FFS(requests RULES_STATE_IDX)", "oracle"
+            )
+            .with_hint(
+                models.ReplicationRule, "INDEX_FFS(requests RULES_ACCOUNT_FK)", "oracle"
+            )
+            .with_hint(
+                models.ReplicationRule,
+                "INDEX_FFS(requests RULES_SC_NA_AC_RS_CO_UQ_IDX)",
+                "oracle",
+            )
+        )
+
+        with PrometheusPusher() as manager:
+            for (
+                account,
+                state,
+                rse_expression,
+                source_replica_expression,
+                activity,
+                check_rules_count_per_acc_st_exp_sexp_act,
+            ) in session.execute(stmt):
+                metrics = {
+                    "check_rules_count_per_acc_st_exp_sexp_act": check_rules_count_per_acc_st_exp_sexp_act,
+                }
+
+                for metric, value in metrics.items():
+                    manager.gauge(
+                        name=(
+                            f"{metric}"
+                            ".{account}.{activity}.{state}"
+                            ".{rse_expression}.{source_replica_expression}"
+                        ),
+                        documentation=(
+                            f"{metric} per:"
+                            "account, activity, state,"
+                            " rse expression and source replica expression"
+                        ),
+                    ).labels(
+                        account=account,
+                        activity=activity,
+                        state=state.name,
+                        rse_expression=rse_expression,
+                        source_replica_expression=source_replica_expression,
+                    ).set(value)
+
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)
+    finally:
+        session.remove()
+    sys.exit(OK)
