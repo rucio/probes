@@ -1,13 +1,17 @@
-#!/usr/bin/env python
-# Copyright European Organization for Nuclear Research (CERN) 2013
+#!/usr/bin/env python3
+# Copyright European Organization for Nuclear Research (CERN) since 2012
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# You may not use this file except in compliance with the License.
-# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Authors:
-# - Mario Lassnig, <mario.lassnig@cern.ch>, 2013-2014
-# - Thomas Beermann, <thomas.beermann@cern.ch>, 2019
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Probe to check the queues of messages to submit by Hermes to the broker
@@ -17,20 +21,18 @@ from __future__ import print_function
 import sys
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from sqlalchemy import func, select
+
 from rucio.common.config import config_get
-from rucio.db.sqla.session import BASE, get_session
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
 
 from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if BASE.metadata.schema:
-    schema = BASE.metadata.schema + '.'
-else:
-    schema = ''
 
-queue_sql = """SELECT COUNT(*) FROM {schema}messages""".format(schema=schema)
 
 PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
 if PROM_SERVERS != '':
@@ -40,10 +42,17 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        result = session.execute(queue_sql).fetchall()
-        print('queues.messages %s' % result[0][0])
-        probe_metrics.gauge(name='queues.messages').set(result[0][0])
-        Gauge('hermes_queues_messages', '', registry=registry).set(result[0][0])
+
+        statement = select(
+            func.count()
+        ).select_from(
+            models.Message
+        )
+        message_count = session.execute(statement).scalar_one()
+
+        print('queues.messages %s' % message_count)
+        probe_metrics.gauge(name='queues.messages').set(message_count)
+        Gauge('hermes_queues_messages', '', registry=registry).set(message_count)
 
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
@@ -52,9 +61,9 @@ if __name__ == "__main__":
                 except:
                     continue
 
-        if result[0][0] > 100000:
+        if message_count > 100000:
             sys.exit(WARNING)
-        elif result[0][0] > 1000000:
+        elif message_count > 1000000:
             sys.exit(CRITICAL)
 
     except Exception as e:
