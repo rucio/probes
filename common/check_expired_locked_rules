@@ -42,14 +42,14 @@ def main():
         models.ReplicationRule.rse_expression,
     )
     try:
-        query = base_statement.where(
+        expired_locked_rules_queries = base_statement.where(
             and_(
                 models.ReplicationRule.locked == true(),
                 models.ReplicationRule.expires_at < datetime.utcnow()  # see https://github.com/rucio/rucio/issues/6476
             )
         )
         print('Locked expired rules')
-        for row in session.execute(query):
+        for row in session.execute(expired_locked_rules_queries):
             status = CRITICAL
             print(row[0], row[1], row[2])
     except Exception as error:
@@ -57,7 +57,7 @@ def main():
         status = UNKNOWN
         sys.exit(status)
     try:
-        query = base_statement.join(
+        dids_locked_expired_rules_query = base_statement.join(
             models.DataIdentifier,
             and_(
                 models.ReplicationRule.scope == models.DataIdentifier.scope,
@@ -71,7 +71,7 @@ def main():
             )
         )
         print('Datasets expired with locked rules')
-        for row in session.execute(query):
+        for row in session.execute(dids_locked_expired_rules_query):
             status = CRITICAL
             print(row[0], row[1], row[2], row[3])
     except Exception as error:
