@@ -19,25 +19,18 @@ Probe to check the queues of the transfer service
 import sys
 from urllib.parse import urlparse
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 from sqlalchemy import func, select
 
-from utils.common import probe_metrics
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
 
 if __name__ == "__main__":
     try:
-        registry = CollectorRegistry()
-        g = Gauge('conveyor_queues_requests', '', labelnames=('state', 'activity', 'external_host'), registry=registry)
         session = get_session()
         active_queue = select(
             models.Request.state,
@@ -49,22 +42,25 @@ if __name__ == "__main__":
             models.Request.activity,
             models.Request.external_host
         )
-        for k in session.execute(active_queue).fetchall():
-            state = k.state.name.lower()
-            activity = k.activity.replace(" ", "-")
-            if k.external_host is not None:
-                external_host = urlparse(k.external_host).hostname.replace(".", "_")
-            else:
-                external_host = 'no_fts_host'
-            print(f"{state}.{activity}.{external_host}", k.count)
-            probe_metrics.gauge(name=state).set(k.count)
-            g.labels(**{'activity': activity, 'state': state, 'external_host': external_host}).set(k.count)
-        if len(PROM_SERVERS):
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_transfer_queues_status', registry=registry)
-                except:
-                    continue
+        with PrometheusPusher() as manager: 
+            for k in session.execute(active_queue).fetchall():
+                state = k.state.name.lower()
+                activity = k.activity.replace(" ", "-")
+                if k.external_host is not None:
+                    external_host = urlparse(k.external_host).hostname.replace(".", "_")
+                else: 
+                    external_host = 'no_fts_host'
+                print(f"{state}.{activity}.{external_host}", k.count)
+
+            manager.gauge(
+                name = 'conveyor_queues_requests.{activity}.{state}.{external_host}', 
+                documentation=''
+            ).labels(
+                activity=activity, 
+                state=state, 
+                external_host=external_host
+            ).set(k.count)
+
     except:
         sys.exit(UNKNOWN)
     sys.exit(OK)
