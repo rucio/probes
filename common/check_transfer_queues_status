@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
             manager.gauge(
                 name = 'conveyor_queues_requests.{activity}.{state}.{external_host}', 
-                documentation=''
+                documentation='Queued request for conveyor daemons by activity, state, and host.'
             ).labels(
                 activity=activity, 
                 state=state, 
