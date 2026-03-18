@@ -20,64 +20,50 @@ Probe to check the backlog of stuck rules.
 import sys
 import traceback
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from sqlalchemy.sql import and_, func, null, or_, select
 
-from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
 
-from utils.common import probe_metrics
+from utils.common import PrometheusPusher
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
 
-PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
-if PROM_SERVERS != '':
-    PROM_SERVERS = PROM_SERVERS.split(',')
-
 if __name__ == "__main__":
     try:
-        registry = CollectorRegistry()
         session = get_session()
-        without_missing_stmt = select(
-            func.count()
-        ).select_from(
-            models.ReplicationRule
-        ).where(
-            and_(
-                models.ReplicationRule.state == "S",
-                or_(
-                    models.ReplicationRule.error != "MissingSourceReplica",
-                    models.ReplicationRule.error == null()
+        with PrometheusPusher(job_name='check_stuck_rules') as manager: 
+            without_missing_stmt = select(
+                func.count()
+            ).select_from(
+                models.ReplicationRule
+            ).where(
+                and_(
+                    models.ReplicationRule.state == "S",
+                    or_(
+                        models.ReplicationRule.error != "MissingSourceReplica",
+                        models.ReplicationRule.error == null()
+                    )
                 )
             )
-        )
-        result = session.execute(without_missing_stmt).scalar_one()
-        probe_metrics.gauge(name='judge.stuck_rules_without_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_without_missing_source_replica', '', registry=registry).set(result)
+            result = session.execute(without_missing_stmt).scalar_one()
+            manager.gauge(name='judge.stuck_rules_without_missing_source_replica').set(result)
 
-        with_missing_stmt = select(
-            func.count()
-        ).select_from(
-            models.ReplicationRule
-        ).where(
-            and_(
-                models.ReplicationRule.state == "S",
-                models.ReplicationRule.error == "MissingSourceReplica"
+            with_missing_stmt = select(
+                func.count()
+            ).select_from(
+                models.ReplicationRule
+            ).where(
+                and_(
+                    models.ReplicationRule.state == "S",
+                    models.ReplicationRule.error == "MissingSourceReplica"
+                )
             )
-        )
-        result = session.execute(with_missing_stmt).scalar_one()
-        probe_metrics.gauge(name='judge.stuck_rules_with_missing_source_replica').set(result)
-        Gauge('judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
+            result = session.execute(with_missing_stmt).scalar_one()
+            manager.gauge(name='judge.stuck_rules_with_missing_source_replica').set(result)
 
-        if len(PROM_SERVERS):
-            for server in PROM_SERVERS:
-                try:
-                    push_to_gateway(server.strip(), job='check_stuck_rules', registry=registry)
-                except:
-                    continue
     except:
         print(traceback.format_exc())
         sys.exit(UNKNOWN)
