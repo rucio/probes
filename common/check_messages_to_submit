@@ -20,20 +20,17 @@ Probe to check the queues of messages to submit by Hermes to the broker
 import sys
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from sqlalchemy import func, select
+
 from rucio.common.config import config_get
-from rucio.db.sqla.session import BASE, get_session
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
 
 from utils.common import probe_metrics
 
 # Exit statuses
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 
-if BASE.metadata.schema:
-    schema = BASE.metadata.schema + '.'
-else:
-    schema = ''
-
-queue_sql = """SELECT COUNT(*) FROM {schema}messages""".format(schema=schema)
 
 PROM_SERVERS = config_get('monitor', 'prometheus_servers', raise_exception=False, default='')
 if PROM_SERVERS != '':
@@ -43,7 +40,12 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        result = session.execute(queue_sql).fetchall()
+        stmt = select(
+            func.count()
+        ).select_from(
+            models.Message
+        )
+        result = session.execute(stmt).fetchall()
         print('queues.messages %s' % result[0][0])
         probe_metrics.gauge(name='queues.messages').set(result[0][0])
         Gauge('hermes_queues_messages', '', registry=registry).set(result[0][0])
