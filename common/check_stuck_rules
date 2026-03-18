@@ -54,7 +54,7 @@ if __name__ == "__main__":
                 )
             )
         )
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(sql).scalar_one()
         probe_metrics.gauge(name='judge.stuck_rules_without_missing_source_replica').set(result)
         Gauge('judge_stuck_rules_without_missing_source_replica', '', registry=registry).set(result)
 
@@ -68,7 +68,7 @@ if __name__ == "__main__":
                 models.ReplicationRule.error == "MissingSourceReplica"
             )
         )
-        result = session.execute(sql).fetchone()[0]
+        result = session.execute(sql).scalar_one()
         probe_metrics.gauge(name='judge.stuck_rules_with_missing_source_replica').set(result)
         Gauge('judge_stuck_rules_with_missing_source_replica', '', registry=registry).set(result)
 
