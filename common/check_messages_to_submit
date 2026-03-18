@@ -45,10 +45,10 @@ if __name__ == "__main__":
         ).select_from(
             models.Message
         )
-        result = session.execute(stmt).fetchall()
-        print('queues.messages %s' % result[0][0])
-        probe_metrics.gauge(name='queues.messages').set(result[0][0])
-        Gauge('hermes_queues_messages', '', registry=registry).set(result[0][0])
+        result = session.execute(stmt).scalar_one()
+        print('queues.messages %s' % result)
+        probe_metrics.gauge(name='queues.messages').set(result)
+        Gauge('hermes_queues_messages', '', registry=registry).set(result)
 
         if len(PROM_SERVERS):
             for server in PROM_SERVERS:
@@ -57,9 +57,9 @@ if __name__ == "__main__":
                 except:
                     continue
 
-        if result[0][0] > 100000:
+        if result > 100000:
             sys.exit(WARNING)
-        elif result[0][0] > 1000000:
+        elif result > 1000000:
             sys.exit(CRITICAL)
 
     except Exception as e:
