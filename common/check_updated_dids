@@ -21,10 +21,11 @@ import sys
 import traceback
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from sqlalchemy import func, select
+
 from rucio.common.config import config_get
 from rucio.db.sqla import models
 from rucio.db.sqla.session import get_session
-from rucio.db.sqla.util import get_count
 
 from utils.common import probe_metrics
 
@@ -39,8 +40,12 @@ if __name__ == "__main__":
     try:
         registry = CollectorRegistry()
         session = get_session()
-        query = session.query(models.UpdatedDID)
-        result = get_count(query)
+        stmt = select(
+            func.count()
+        ).select_from(
+            models.UpdatedDID
+        )
+        result = session.execute(stmt).scalar_one()
         probe_metrics.gauge(name='judge.updated_dids').set(result)
         Gauge('judge_updated_dids', '', registry=registry).set(result)
 
