@@ -54,30 +54,36 @@ LDAP_PAGE_SIZE = 1000
 def get_accounts_identities_fast():
     from rucio.db.sqla.session import get_session
     session = get_session()
-    query = '''select b.identity, a.account, a.email, a.account_type from atlas_rucio.accounts a,  atlas_rucio.account_map b where a.account=b.account and identity_type='X509' '''
+    query = '''select b.identity, a.account, a.email, a.account_type, b.identity_type from atlas_rucio.accounts a,  atlas_rucio.account_map b where a.account=b.account'''
     dns = {}
+    account2identities = {}
     try:
         result = session.execute(query)
-        for dn, account, email, atype in result:
-            dns.setdefault(atype, {})[dn] = (account, email)
-        return dns
+        for identity, account, email, atype, itype in result:
+            account2identities.setdefault(account, []).append((itype, identity))
+            if itype not in ['X509', 'OIDC']:
+                continue
+            dns.setdefault(atype, {})[identity] = (account, email)
+        return dns, account2identities
     except Exception as error:
         print(error)
 
 
 def get_accounts_identities_slow():
     dns = {}
+    account2identities = {}
     client = Client()
     for account in client.list_accounts():
         #if account['type'] != 'USER':
         #    continue
         for identity in client.list_identities(account['account']):
-            if identity['type'] != 'X509':
+            account2identities.setdefault(account['account'], []).append((identity['type'], identity['identity']))
+            if identity['type'] not in ['X509', 'OIDC']:
                 continue
-            if identity['identity'] in dns:
-                print("Duplicate identity for users {} and {}: {}".format(dns[identity['identity']][0], account['account'], identity['identity']))
+            if account['type'] == 'USER' and identity['identity'] in dns.get(account['type'], {}):
+                print("Duplicate identity for users {} and {}: {}".format(dns[account['type']][identity['identity']][0], account['account'], identity['identity']))
             dns.setdefault(account['type'], {})[identity['identity']] = (account['account'], account['email'])
-    return dns
+    return dns, account2identities
 
 
 get_accounts_identities = get_accounts_identities_slow
@@ -189,11 +195,12 @@ def get_users(scim_url, access_token):
             d = response.json()
             if d['itemsPerPage'] == 0: break
             for user in d['Resources']:
+                if not user['active']: continue
                 certs = []
                 for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
                     certs.append(certificate['subjectDn'])
                 groups = [x['display'] for x in user.get('groups', [])]
-                ret.append((user['userName'], user['active'], user['emails'][0]['value'], certs, groups))
+                ret.append((user['id'], user['userName'], user['active'], user['emails'][0]['value'], certs, groups))
             start += page_size
 
     return ret
@@ -229,13 +236,13 @@ if __name__ == '__main__':
     client = Client()
     accounts = {account['account']: account for account in client.list_accounts()}
     scopes = [_ for _ in client.list_scopes()]
-    dns = get_accounts_identities()
+    dns, account2identities = get_accounts_identities()
     ldap_accounts = get_ldap_identities()
 
     # synchronize accounts, identities and scopes
     synced_accounts = []
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    for nickname, active, email, certs, groups in get_users(SCIM_URL, access_token):
+    for userid, nickname, active, email, certs, groups in get_users(SCIM_URL, access_token):
         if 'atlas' not in groups:
             print("Skipping user {0} because it is not member of ATLAS groups".format(nickname))
             continue
@@ -296,10 +303,21 @@ if __name__ == '__main__':
                     print('Identity {0} added to {2} account {1}'.format(dn, nickname, atype))
                 except Duplicate:
                     pass
+            # c) add OIDC identity
+            if userid not in dns.get(atype, []):
+                try:
+                    if not TEST:
+                        client.add_identity(account=nickname, identity=userid, authtype='OIDC', email=email, default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, userid, email))
+                    nbusers += 1
+                    print('Identity {0} added to {2} account {1}'.format(userid, nickname, atype))
+                except Duplicate:
+                    pass
             if atype == 'USER':
                 scope = 'user.' + nickname
 
-        elif active and nickname in ldap_accounts and len(certs) > 0:
+        elif active and nickname in ldap_accounts:
             # no rucio account exists for this nickname
             if email.lower() not in [mail.lower() for mail in ldap_accounts[nickname]['mails']]:
                 print('Account %s (%s) without matching email in LDAP does not exist. To create it : rucio-admin account add --type USER --email %s %s' % (nickname, ldap_accounts[nickname]['type'], email, nickname))
@@ -318,6 +336,12 @@ if __name__ == '__main__':
                             print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
                         nbusers += 1
                         print('Identity {0} added to USER account {1}'.format(dn, nickname))
+                    if not TEST:
+                        client.add_identity(account=nickname, identity=userid, authtype='OIDC', email=email, default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, userid, email))
+                    nbusers += 1
+                    print('Identity {0} added to {2} account {1}'.format(userid, nickname, atype))
                     scope = 'user.' + nickname
                 except Exception:
                     print('Failed to add new account %s (%s)' % (nickname, ldap_accounts[nickname]['type']))
@@ -343,8 +367,9 @@ if __name__ == '__main__':
         aname = account['account']
         if aname not in synced_accounts:
             delusers += 1
+            identities = account2identities.get(aname, [])
             if TEST:
-                print('User account {0} is no longer member VO, details {1}'.format(aname, account))
+                print('User account {0} is no longer member VO, details {1}, identities({2}) {3}'.format(aname, account, len(identities), identities))
 
     print('%i users extracted from VOMS, %i users updated, %i users not in VO' % (syncusers, nbusers, delusers))
 
