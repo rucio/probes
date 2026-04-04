@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+# Copyright 2012-2024 CERN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Christos Emmanouil, <christos.emmanouil@cern.ch>, 2024
+
+"""
+Probe to check numeric rse settings and attributes
+"""
+
+import sys
+import traceback
+
+from sqlalchemy import select
+from sqlalchemy.inspection import inspect
+
+from rucio.db.sqla import models
+from rucio.db.sqla.session import get_session
+
+from utils import common
+
+PrometheusPusher = common.PrometheusPusher
+
+# Exit statuses
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+
+
+def is_numeric_or_bool_string(val):
+    try:
+        if isinstance(val, str) and val.lower() in ["true", "false"]:
+            return True
+        float(val)
+        return True
+    except:
+        return False
+
+
+def convert_attr_value(val):
+    if isinstance(val, bool):
+        return int(val)
+    elif isinstance(val, (int, float)):
+        return val
+    elif isinstance(val, str):
+        lower = val.lower()
+        if lower == "true":
+            return 1
+        elif lower == "false":
+            return 0
+        try:
+            f = float(val)
+            return int(f) if f.is_integer() else f
+        except:
+            return val
+    return val
+
+
+if __name__ == "__main__":
+    try:
+        session = get_session()
+
+        results = []
+
+        stmt = select(
+            models.RSE.id,
+            models.RSE.rse,
+            models.RSEAttrAssociation.key,
+            models.RSEAttrAssociation.value
+        ).join(
+            models.RSEAttrAssociation, 
+            models.RSE.id == models.RSEAttrAssociation.rse_id
+        )
+
+        for rse_id, rse_name, key, value in session.execute(stmt):
+            if key == rse_name:
+                continue
+            if isinstance(value, (int, float, bool)) or (
+                isinstance(value, str) and is_numeric_or_bool_string(value)
+            ):
+                results.append((rse_name, key, convert_attr_value(value)))
+
+        rse_stmt = select(models.RSE)
+        rse_rows = session.execute(rse_stmt).scalars().all()
+
+        for rse in rse_rows:
+            rse_name = rse.rse
+            for col in inspect(models.RSE).mapper.column_attrs:
+                if col.key == "id":
+                    continue
+                if col.key == rse_name:
+                    continue
+                val = getattr(rse, col.key)
+                if isinstance(val, (int, float, bool)) or (
+                    isinstance(val, str) and is_numeric_or_bool_string(val)
+                ):
+                    results.append((rse_name, col.key, convert_attr_value(val)))
+
+        results = list(set(results))
+
+        with PrometheusPusher() as manager:
+            for rse_name, key, value in sorted(results):
+                manager.gauge(
+                    name="rse_sett_n_attr.{rse}.{key}",
+                    documentation="settings and attributes per rse",
+                ).labels(rse=rse_name, key=key).set(value)
+
+    except:
+        print(traceback.format_exc())
+        sys.exit(UNKNOWN)
+    finally:
+        session.remove()
+    sys.exit(OK)
