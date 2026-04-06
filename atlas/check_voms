@@ -221,8 +221,9 @@ if __name__ == '__main__':
         except Exception as error:
             print("Failed to get also client certificate and key from rucio.cfg")
             sys.exit(CRITICAL)
-    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
-    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    ISSUER = 'https://atlas-auth.cern.ch/'
+    TOKEN_URL = '{}/token'.format(ISSUER)
+    SCIM_URL = '{}/scim'.format(ISSUER)
     try:
         CLIENT_ID = os.environ['CLIENT_ID']
         CLIENT_SECRET = os.environ['CLIENT_SECRET']
@@ -304,12 +305,13 @@ if __name__ == '__main__':
                 except Duplicate:
                     pass
             # c) add OIDC identity
-            if userid not in dns.get(atype, []):
+            oidc_identity = "SUB={}, ISS={}".format(userid, ISSUER)
+            if oidc_identity not in dns.get(atype, []):
                 try:
                     if not TEST:
-                        client.add_identity(account=nickname, identity=userid, authtype='OIDC', email=email, default=True)
+                        client.add_identity(account=nickname, identity=oidc_identity, authtype='OIDC', email=email, default=True)
                     else:
-                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, userid, email))
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, oidc_identity, email))
                     nbusers += 1
                     print('Identity {0} added to {2} account {1}'.format(userid, nickname, atype))
                 except Duplicate:
@@ -336,10 +338,11 @@ if __name__ == '__main__':
                             print("CMD: rucio-admin identity add --account {0} --type X509 --id '{1}' --email '{2}'".format(nickname, dn, email))
                         nbusers += 1
                         print('Identity {0} added to USER account {1}'.format(dn, nickname))
+                    oidc_identity = "SUB={}, ISS={}".format(userid, ISSUER)
                     if not TEST:
-                        client.add_identity(account=nickname, identity=userid, authtype='OIDC', email=email, default=True)
+                        client.add_identity(account=nickname, identity=oidc_identity, authtype='OIDC', email=email, default=True)
                     else:
-                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, userid, email))
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(nickname, oidc_identity, email))
                     nbusers += 1
                     print('Identity {0} added to {2} account {1}'.format(userid, nickname, atype))
                     scope = 'user.' + nickname

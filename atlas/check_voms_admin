@@ -154,8 +154,9 @@ if __name__ == '__main__':
         except Exception as error:
             print("Failed to get also client certificate and key from rucio.cfg")
             sys.exit(CRITICAL)
-    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
-    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    ISSUER = 'https://atlas-auth.cern.ch/'
+    TOKEN_URL = '{}/token'.format(ISSUER)
+    SCIM_URL = '{}/scim'.format(ISSUER)
     try:
         CLIENT_ID = os.environ['CLIENT_ID']
         CLIENT_SECRET = os.environ['CLIENT_SECRET']
@@ -187,8 +188,9 @@ if __name__ == '__main__':
     userid2accounts = {}
     for userid, certs in userid2certs.items():
         accounts = set()
-        if userid in dn2useraccount:
-            accounts.add(dn2useraccount[userid])
+        oidc_identity = "SUB={}, ISS={}".format(userid, ISSUER)
+        if oidc_identity in dn2useraccount:
+            accounts.add(dn2useraccount[oidc_identity])
         for cert in certs:
             if cert in dn2useraccount:
                 accounts.add(dn2useraccount[cert])
