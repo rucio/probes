@@ -303,4 +303,16 @@ if __name__ == '__main__':
             print("failed to update account {} ({} -> {}): {}".format(account, rucio_attributes, attributes, str(error)))
             result = WARNING
 
+    # Remove all attributes from USER accounts not in IAM.
+    accounts_in_rucio = set(account2attrs.keys())
+    accounts_in_iam = set(account2attributes.keys())
+    user_accounts = set(a['account'] for a in client.list_accounts(filters={'account_type': 'USER'}))
+    if not SKIP_REMOVE:
+        for account in accounts_in_rucio - accounts_in_iam & user_accounts:
+            for key, value in account2attrs.get(account, {}).items():
+                if not TEST:
+                    client.delete_account_attribute(account=account, key=key)
+                else:
+                    print("CMD: rucio-admin account delete-attribute --key '{}' {}".format(key, account))
+
     sys.exit(result)
