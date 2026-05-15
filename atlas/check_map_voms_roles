@@ -22,7 +22,7 @@ import requests.auth
 
 from rucio.client import Client
 from rucio.common.config import config_get
-from rucio.common.exception import Duplicate, IdentityError
+from rucio.common.exception import Duplicate, IdentityError, AccountNotFound
 
 UNKNOWN = 3
 CRITICAL = 2
@@ -46,6 +46,7 @@ def get_access_token(token_url, client_id, client_secret):
 
 def get_userid2certs_mapping(scim_url, access_token):
     ret = {}
+    userid2email = {}
 
     with requests.Session() as session:
         session.headers = {
@@ -62,11 +63,13 @@ def get_userid2certs_mapping(scim_url, access_token):
             d = response.json()
             if d['itemsPerPage'] == 0: break
             for user in d['Resources']:
+                if not user['active']: continue
+                userid2email[user['id']] = user['emails'][0]['value']
                 for certificate in user.get('urn:indigo-dc:scim:schemas:IndigoUser', {}).get('certificates', []):
                     ret.setdefault(user['id'], []).append((certificate['subjectDn'], certificate['issuerDn'], user['emails'][0]['value']))
             start += page_size
 
-    return ret
+    return ret, userid2email
 
 def get_group2id_mapping(scim_url, access_token):
     ret = {}
@@ -119,10 +122,13 @@ def get_groupid_members(scim_url, groupid, access_token):
 def get_account_identities(account):
     ret = []
     client = Client()
-    for identity in client.list_identities(account):
-        if identity['type'] != 'X509':
-            continue
-        ret.append(identity['identity'])
+    try:
+        for identity in client.list_identities(account):
+            if identity['type'] not in ['X509', 'OIDC']:
+                continue
+            ret.append(identity['identity'])
+    except AccountNotFound:
+        return None
     return ret
 
 
@@ -142,8 +148,9 @@ if __name__ == '__main__':
         except Exception as error:
             print("Failed to get also client certificate and key from rucio.cfg")
             sys.exit(CRITICAL)
-    TOKEN_URL = 'https://atlas-auth.cern.ch/token'
-    SCIM_URL = 'https://atlas-auth.cern.ch/scim'
+    ISSUER = 'https://atlas-auth.cern.ch/'
+    TOKEN_URL = '{}/token'.format(ISSUER)
+    SCIM_URL = '{}/scim'.format(ISSUER)
     try:
         CLIENT_ID = os.environ['CLIENT_ID']
         CLIENT_SECRET = os.environ['CLIENT_SECRET']
@@ -156,7 +163,7 @@ if __name__ == '__main__':
     CLIENT = Client()
 
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
-    userid2certs = get_userid2certs_mapping(SCIM_URL, access_token)
+    userid2certs, userid2email = get_userid2certs_mapping(SCIM_URL, access_token)
     access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
     group2id = get_group2id_mapping(SCIM_URL, access_token)
 
@@ -169,8 +176,29 @@ if __name__ == '__main__':
         dns = []
         groupid = group2id["atlas/{}".format(account)]
         account_identities = get_account_identities(ACCOUNT_MAP[account])
+        if account_identities == None:
+            print("missing rucio account for {}".format(ACCOUNT_MAP[account]))
+            continue
         access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
         for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2email:
+                print("missing or disabled account for userid {}".format(userid))
+                continue
+            dns.append(userid)
+            if userid not in account_identities:
+                NBUSERS += 1
+                try:
+                    oidc_identity = "SUB={}, ISS={}".format(userid, ISSUER)
+                    if not TEST:
+                        CLIENT.add_identity(account=ACCOUNT_MAP[account], identity=oidc_identity, authtype='OIDC', email=userid2email[userid], default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(ACCOUNT_MAP[account], oidc_identity, userid2email[userid]))
+                    print('Identity {0} added to {1}'.format(userid, ACCOUNT_MAP[account]))
+                except Duplicate:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(userid, ACCOUNT_MAP[account], error))
+                    STATUS = WARNING
             if userid not in userid2certs:
                 print("missing user details for userid {}".format(userid))
                 continue
@@ -194,12 +222,13 @@ if __name__ == '__main__':
             for dn in account_identities:
                 if dn in dns:
                     continue
+                itype = 'X509' if '=' in dn else 'OIDC'
                 NDUSERS += 1
                 try:
                     if not TEST:
                         CLIENT.del_identity(account=ACCOUNT_MAP[account], identity=dn, authtype='X509')
                     else:
-                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(ACCOUNT_MAP[account], dn))
+                        print("CMD: rucio-admin identity delete --account {0} --type {1} --id '{2}'".format(ACCOUNT_MAP[account], itype, dn))
                     print('Identity {0} removed from {1}'.format(dn, ACCOUNT_MAP[account]))
                 except IdentityError:
                     pass
@@ -225,8 +254,29 @@ if __name__ == '__main__':
         dns = []
         groupid = group2id["atlas/{}".format(account)]
         account_identities = get_account_identities(account)
+        if account_identities == None:
+            print("missing rucio account for {}".format(account))
+            continue
         access_token = get_access_token(TOKEN_URL, CLIENT_ID, CLIENT_SECRET)
         for userid in get_groupid_members(SCIM_URL, groupid, access_token):
+            if userid not in userid2email:
+                print("missing or disabled account for userid {}".format(userid))
+                continue
+            dns.append(userid)
+            if userid not in account_identities:
+                NBUSERS += 1
+                try:
+                    oidc_identity = "SUB={}, ISS={}".format(userid, ISSUER)
+                    if not TEST:
+                        CLIENT.add_identity(account=account, identity=oidc_identity, authtype='OIDC', email=userid2email[userid], default=True)
+                    else:
+                        print("CMD: rucio-admin identity add --account {0} --type OIDC --id '{1}' --email '{2}'".format(account, oidc_identity, userid2email[userid]))
+                    print('Identity {0} added to {1}'.format(userid, account))
+                except Duplicate:
+                    pass
+                except Exception as error:
+                    print('ERROR {0} not added to {1}: {2}'.format(userid, ACCOUNT_MAP[account], error))
+                    STATUS = WARNING
             if userid not in userid2certs:
                 print("missing user details for userid {}".format(userid))
                 continue
@@ -250,12 +300,13 @@ if __name__ == '__main__':
             for dn in account_identities:
                 if dn in dns:
                     continue
+                itype = 'OIDC' if 'ISS=' in dn and 'SUB=' in dn else 'X509'
                 NDUSERS += 1
                 try:
                     if not TEST:
-                        CLIENT.del_identity(account=account, identity=dn, authtype='X509')
+                        CLIENT.del_identity(account=account, identity=dn, authtype=itype)
                     else:
-                        print("CMD: rucio-admin identity delete --account {0} --type X509 --id '{1}'".format(account, dn))
+                        print("CMD: rucio-admin identity delete --account {0} --type {1} --id '{2}'".format(account, itype, dn))
                     print('Identity {0} removed from {1}'.format(dn, account))
                 except IdentityError:
                     pass
